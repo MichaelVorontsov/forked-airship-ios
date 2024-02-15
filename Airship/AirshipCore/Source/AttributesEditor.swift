@@ -2,28 +2,30 @@
 
 import Foundation
 
-/**
- * Attributes editor.
- */
+/// Attributes editor.
 @objc(UAAttributesEditor)
-public class AttributesEditor: NSObject {
-    
-    private let date : AirshipDate
-    private var sets : [String : Any] = [:]
-    private var removes : [String] = []
-    private let completionHandler : ([AttributeUpdate]) -> Void
-    
-    init(date: AirshipDate, completionHandler : @escaping ([AttributeUpdate]) -> Void) {
+public final class AttributesEditor: NSObject {
+
+    private let date: AirshipDateProtocol
+    private var sets: [String: AirshipJSON] = [:]
+    private var removes: [String] = []
+    private let completionHandler: ([AttributeUpdate]) -> Void
+
+    init(
+        date: AirshipDateProtocol,
+        completionHandler: @escaping ([AttributeUpdate]) -> Void
+    ) {
         self.completionHandler = completionHandler
         self.date = date
         super.init()
     }
-    
-    @objc
-    public convenience init(completionHandler : @escaping ([AttributeUpdate]) -> Void) {
+
+    convenience init(
+        completionHandler: @escaping ([AttributeUpdate]) -> Void
+    ) {
         self.init(date: AirshipDate(), completionHandler: completionHandler)
     }
-    
+
     /**
      * Removes an attribute.
      * - Parameters:
@@ -44,7 +46,12 @@ public class AttributesEditor: NSObject {
      */
     @objc(setDate:attribute:)
     public func set(date: Date, attribute: String) {
-        add(attribute: attribute, value: Utils.isoDateFormatterUTCWithDelimiter().string(from: date))
+        add(
+            attribute: attribute,
+            value: .string(
+                AirshipUtils.isoDateFormatterUTCWithDelimiter().string(from: date)
+            )
+        )
     }
 
     /**
@@ -55,7 +62,7 @@ public class AttributesEditor: NSObject {
      */
     @objc(setNumber:attribute:)
     public func set(number: NSNumber, attribute: String) {
-        add(attribute: attribute, value: number)
+        add(attribute: attribute, value: .number(number.doubleValue))
     }
 
     /**
@@ -67,11 +74,13 @@ public class AttributesEditor: NSObject {
     @objc(setString:attribute:)
     public func set(string: String, attribute: String) {
         guard string.count >= 1 && string.count <= 1024 else {
-            AirshipLogger.error("Invalid attribute value \(string). Must be between 1-1024 characters.")
+            AirshipLogger.error(
+                "Invalid attribute value \(string). Must be between 1-1024 characters."
+            )
             return
         }
-        
-        add(attribute: attribute, value: string)
+
+        add(attribute: attribute, value: .string(string))
     }
 
     /**
@@ -81,7 +90,7 @@ public class AttributesEditor: NSObject {
      *   - attribute: The attribute.
      */
     public func set(float: Float, attribute: String) {
-        add(attribute: attribute, value: float)
+        add(attribute: attribute, value: .number(Double(float)))
     }
 
     /**
@@ -91,7 +100,7 @@ public class AttributesEditor: NSObject {
      *   - attribute: The attribute.
      */
     public func set(double: Double, attribute: String) {
-        add(attribute: attribute, value: double)
+        add(attribute: attribute, value: .number(double))
     }
 
     /**
@@ -101,7 +110,7 @@ public class AttributesEditor: NSObject {
      *   - attribute: The attribute.
      */
     public func set(int: Int, attribute: String) {
-        add(attribute: attribute, value: int)
+        add(attribute: attribute, value: .number(Double(int)))
     }
 
     /**
@@ -111,31 +120,41 @@ public class AttributesEditor: NSObject {
      *   - attribute: The attribute.
      */
     public func set(uint: UInt, attribute: String) {
-        add(attribute: attribute, value: uint)
+        add(attribute: attribute, value: .number(Double(uint)))
     }
- 
+
     /**
      * Applies the attribute changes.
      */
     @objc
     public func apply() {
-        let removeOperations : [AttributeUpdate] = removes.compactMap { AttributeUpdate.remove(attribute: $0, date: self.date.now) }
-        let setOperations : [AttributeUpdate] = sets.compactMap { AttributeUpdate.set(attribute: $0.key, value: $0.value, date: self.date.now) }
-       
+        let removeOperations: [AttributeUpdate] = removes.compactMap {
+            AttributeUpdate.remove(attribute: $0, date: self.date.now)
+        }
+        let setOperations: [AttributeUpdate] = sets.compactMap {
+            AttributeUpdate.set(
+                attribute: $0.key,
+                value: $0.value,
+                date: self.date.now
+            )
+        }
+
         self.completionHandler(removeOperations + setOperations)
         removes.removeAll()
         sets.removeAll()
     }
-    
-    private func add(attribute: String, value: Any) {
+
+    private func add(attribute: String, value: AirshipJSON) {
         guard isValid(key: attribute) else { return }
         sets[attribute] = value
-        removes.removeAll(where: { $0 == attribute})
+        removes.removeAll(where: { $0 == attribute })
     }
-    
+
     private func isValid(key: String) -> Bool {
         guard key.count >= 1 && key.count <= 1024 else {
-            AirshipLogger.error("Invalid attribute key \(key). Must be between 1-1024 characters.")
+            AirshipLogger.error(
+                "Invalid attribute key \(key). Must be between 1-1024 characters."
+            )
             return false
         }
         return true

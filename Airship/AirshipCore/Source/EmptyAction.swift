@@ -2,26 +2,13 @@
 
 import Foundation
 
-/**
- * Action that produces an empty result.
- */
-@objc(UAEmptyAction)
-public class EmptyAction : NSObject, Action {
-    
-    /**
-     * Default constructor.
-     */
-    @objc
-    public override init() {
-        super.init()
-    }
-    
-
-    public func acceptsArguments(_ arguments: ActionArguments) -> Bool {
+/// Action that produces an empty result.
+public final class EmptyAction: AirshipAction {
+    public func accepts(arguments: ActionArguments) async -> Bool {
         return true
     }
-    
-    public func perform(with arguments: ActionArguments, completionHandler: @escaping UAActionCompletionHandler) {
-        completionHandler(ActionResult.empty())
+
+    public func perform(arguments: ActionArguments) async throws -> AirshipJSON? {
+        return nil
     }
 }

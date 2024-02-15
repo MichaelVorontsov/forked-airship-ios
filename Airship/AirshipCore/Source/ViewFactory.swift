@@ -4,11 +4,14 @@ import Foundation
 import SwiftUI
 
 /// View factory. Inflates views based on type.
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 struct ViewFactory {
+    @MainActor
     @ViewBuilder
-    static func createView(model: ViewModel, constraints: ViewConstraints) -> some View {
-        switch (model) {
+    static func createView(model: ViewModel, constraints: ViewConstraints)
+        -> some View
+    {
+        switch model {
         case .container(let model):
             Container(model: model, constraints: constraints)
         case .linearLayout(let model):
@@ -22,7 +25,7 @@ struct ViewFactory {
         case .labelButton(let model):
             LabelButton(model: model, constraints: constraints)
         case .emptyView(let model):
-            EmptyView(model: model, constraints: constraints)
+            AirshipEmptyView(model: model, constraints: constraints)
         case .formController(let model):
             FormController(model: model, constraints: constraints)
         case .npsController(let model):
@@ -33,6 +36,8 @@ struct ViewFactory {
             PagerController(model: model, constraints: constraints)
         case .pagerIndicator(let model):
             PagerIndicator(model: model, constraints: constraints)
+        case .storyIndicator(let model):
+            StoryIndicator(model: model, constraints: constraints)
         case .pager(let model):
             Pager(model: model, constraints: constraints)
         #if !os(tvOS) && !os(watchOS)
@@ -57,6 +62,5 @@ struct ViewFactory {
             StateController(model: model, constraints: constraints)
         }
     }
-    
-}
 
+}

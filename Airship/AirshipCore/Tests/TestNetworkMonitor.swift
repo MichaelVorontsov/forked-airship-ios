@@ -1,8 +1,8 @@
-import Foundation
 import AirshipCore
+import Foundation
 
 @objc(UATestNetworkMonitor)
-public class TestNetworkMonitor : NetworkMonitor {
+public class TestNetworkMonitor: NetworkMonitor {
 
     @objc
     public var isConnectedOverride: Bool {
@@ -10,16 +10,25 @@ public class TestNetworkMonitor : NetworkMonitor {
             self.connectionUpdates?(isConnected)
         }
     }
-    
+
     @objc
     open override var isConnected: Bool {
-        get {
-            return self.isConnectedOverride
-        }
+        return self.isConnectedOverride
     }
 
     public override init() {
         self.isConnectedOverride = false
         super.init()
     }
+}
+
+
+actor TestNetworkChecker: NetworkCheckerProtocol {
+    init() {}
+
+    public func setConnected(_ connected: Bool) {
+        self.isConnected = connected
+    }
+    private(set) var isConnected: Bool = false
+
 }

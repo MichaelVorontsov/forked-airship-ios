@@ -1,177 +1,123 @@
 /* Copyright Airship and Contributors */
 
-// NOTE: For internal use only. :nodoc:
-@objc(UAChannelRegistrarProtocol)
-public protocol ChannelRegistrarProtocol {
-    @objc
-    var delegate : ChannelRegistrarDelegate? { get set}
-    
-    var channelID : String? { get }
-    
-    @objc(registerForcefully:)
+import Foundation
+import Combine
+
+/// NOTE: For internal use only. :nodoc:
+protocol ChannelRegistrarProtocol: AnyObject, Sendable {
+    var channelID: String? { get }
+    var updatesPublisher: AnyPublisher<ChannelRegistrationUpdate, Never> { get }
     func register(forcefully: Bool)
-    
-    @objc
-    func performFullRegistration()
+    func addChannelRegistrationExtender(
+        extender: @escaping (ChannelRegistrationPayload) async -> ChannelRegistrationPayload
+    )
 }
 
-/**
- * The UAChannelRegistrarDelegate protocol for registration events.
- * - Note: For internal use only. :nodoc:
- */
-@objc(UAChannelRegistrarDelegate)
-public protocol ChannelRegistrarDelegate {
-    /**
-     * Get registration payload for current channel
-     *
-     * - Note: This method will be called on the main thread.
-     *
-     * - Parameter completionHandler: A completion handler which will be passed the created registration payload.
-     */
-    @objc
-    func createChannelPayload(completionHandler: @escaping (ChannelRegistrationPayload) -> ())
-    
-    /**
-     * Called when the channel registrar failed to register.
-     */
-    func registrationFailed()
-    
-    /**
-     * Called when the channel registrar successfully registered.
-     */
-    func registrationSucceeded()
-    
-    /**
-     * Called when the channel registrar creates a new channel.
-     * - Parameter channelID: The channel ID string.
-     * - Parameter existing: Boolean to indicate if the channel previously existed or not.
-     */
-    func channelCreated(channelID: String, existing: Bool)
+enum ChannelRegistrationUpdate {
+    case created(channelID: String, isExisting: Bool)
+    case updated(channelID: String)
 }
 
-/**
-* The ChannelRegistrar class is responsible for device registrations.
-* - Note: For internal use only. :nodoc:
-*/
-@objc
-public class ChannelRegistrar : NSObject, ChannelRegistrarProtocol {
-    private static let forcefullyKey = "forcefully";
-    static let taskID = "UAChannelRegistrar.registration";
-    private static let channelIDKey = "UAChannelID";
-    private static let lastPayloadKey = "ChannelRegistrar.payload";
-    private static let lastUpdateKey = "payload-update-key";
+/// The ChannelRegistrar class is responsible for device registrations.
+/// - Note: For internal use only. :nodoc:
+final class ChannelRegistrar: ChannelRegistrarProtocol, @unchecked Sendable {
+    static let workID = "UAChannelRegistrar.registration"
 
-    @objc
-    public weak var delegate : ChannelRegistrarDelegate?
-    
-    private var _channelID: String? {
+    fileprivate static let forcefullyKey = "forcefully"
+    private static let channelIDKey = "UAChannelID"
+    private static let lastRegistrationInfo = "ChannelRegistrar.lastRegistrationInfo"
+
+    private var extenders: [(ChannelRegistrationPayload) async -> ChannelRegistrationPayload] = []
+
+    private let dataStore: PreferenceDataStore
+    private let channelAPIClient: ChannelAPIClientProtocol
+    private let date: AirshipDateProtocol
+    private let workManager: AirshipWorkManagerProtocol
+    private let appStateTracker: AppStateTrackerProtocol
+    private let updatesSubject = PassthroughSubject<ChannelRegistrationUpdate, Never>()
+    private var checkAppRestoreTask: Task<Void, Never>?
+
+
+    private var lastRegistrationInfo: LastRegistrationInfo? {
         get {
-            self.dataStore.string(forKey: ChannelRegistrar.channelIDKey)
-        }
-        set {
-            self.dataStore.setObject(newValue, forKey: ChannelRegistrar.channelIDKey)
-            AirshipLogger.importantInfo("Channel ID: \(newValue ?? "")")
-        }
-    }
-    
-    private var lastSuccessPayload: ChannelRegistrationPayload? {
-        get {
-            if let data = self.dataStore.data(forKey: ChannelRegistrar.lastPayloadKey) {
-                do {
-                    return try ChannelRegistrationPayload.decode(data)
-                } catch {
-                    AirshipLogger.error("Unable to load last payload \(error)")
-                    return nil
-                }
-            } else {
+            do {
+                return try self.dataStore.codable(
+                    forKey: ChannelRegistrar.lastRegistrationInfo
+                )
+            } catch {
+                AirshipLogger.error("Unable to load last registration info \(error)")
                 return nil
             }
         }
         set {
-            if (newValue != nil) {
-                if let data = try? newValue?.encode() {
-                    self.dataStore.setObject(data, forKey: ChannelRegistrar.lastPayloadKey)
-                }
-            } else {
-                self.dataStore.removeObject(forKey: ChannelRegistrar.lastPayloadKey)
+            do {
+                try self.dataStore.setCodable(
+                    newValue,
+                    forKey: ChannelRegistrar.lastRegistrationInfo
+                )
+            } catch {
+                AirshipLogger.error("Unable to store last registration info \(error)")
             }
         }
     }
-    
-    private var lastUpdateDate: Date {
-        get {
-            return self.dataStore.object(forKey: ChannelRegistrar.lastUpdateKey) as? Date ?? Date.distantPast
-        }
-        set {
-            self.dataStore.setObject(newValue, forKey: ChannelRegistrar.lastUpdateKey)
-        }
-    }
-    
     /**
      * The channel ID for this device.
      */
-    @objc
-    public var channelID : String? {
+    var channelID: String? {
         get {
-            return self._channelID
+            self.dataStore.string(forKey: ChannelRegistrar.channelIDKey)
+        }
+        set {
+            self.dataStore.setObject(
+                newValue,
+                forKey: ChannelRegistrar.channelIDKey
+            )
         }
     }
-    
-    private let dataStore: PreferenceDataStore
-    private let channelAPIClient: ChannelAPIClientProtocol
-    private let date: AirshipDate
-    private let dispatcher: UADispatcher
-    private let taskManager: TaskManagerProtocol
-    private let appStateTracker: AppStateTracker
+
+    var updatesPublisher: AnyPublisher<ChannelRegistrationUpdate, Never> {
+        return self.updatesSubject.eraseToAnyPublisher()
+    }
 
     init(
         dataStore: PreferenceDataStore,
         channelAPIClient: ChannelAPIClientProtocol,
-        date: AirshipDate,
-        dispatcher: UADispatcher,
-        taskManager: TaskManagerProtocol,
-        appStateTracker:AppStateTracker
+        date: AirshipDateProtocol = AirshipDate.shared,
+        workManager: AirshipWorkManagerProtocol = AirshipWorkManager.shared,
+        appStateTracker: AppStateTrackerProtocol = AppStateTracker.shared
     ) {
         self.dataStore = dataStore
         self.channelAPIClient = channelAPIClient
         self.date = date
-        self.dispatcher = dispatcher
-        self.taskManager = taskManager
+        self.workManager = workManager
         self.appStateTracker = appStateTracker
-        
-        super.init()
 
-        if (self.channelID != nil) {
-            self.dispatcher.dispatchAsync {
-                self.checkAppRestore()
+        if self.channelID != nil {
+            checkAppRestoreTask = Task {
+                if await self.dataStore.isAppRestore {
+                    self.clearChannelData()
+                }
             }
         }
-        
-        self.taskManager.register(taskID: ChannelRegistrar.taskID, dispatcher: self.dispatcher) { [weak self] task in
-            if (task.taskID == ChannelRegistrar.taskID) {
-                self?.handleRegistrationTask(task)
-            } else {
-                AirshipLogger.error("Invalid task: \(task.taskID)")
-                task.taskCompleted()
-            }
+
+        self.workManager.registerWorker(
+            ChannelRegistrar.workID,
+            type: .serial
+        ) { [weak self] request in
+           return try await self?.handleRegistrationWorkRequest(request) ?? .success
         }
     }
-    
-    @objc
-    public convenience init(
+
+    convenience init(
         config: RuntimeConfig,
         dataStore: PreferenceDataStore
     ) {
         self.init(
-            dataStore:dataStore,
-            channelAPIClient: ChannelAPIClient(config: config),
-            date: AirshipDate(),
-            dispatcher: UADispatcher.serial(.utility),
-            taskManager: TaskManager.shared,
-            appStateTracker: AppStateTracker.shared
+            dataStore: dataStore,
+            channelAPIClient: ChannelAPIClient(config: config)
         )
     }
-    
+
     /**
      * Register the device with Airship.
      *
@@ -179,221 +125,212 @@ public class ChannelRegistrar : NSObject, ChannelRegistrarProtocol {
      *
      * - Parameter forcefully: YES to force the registration.
      */
-    public func register(forcefully: Bool) {
+    func register(forcefully: Bool) {
         guard self.channelAPIClient.isURLConfigured else {
             return
         }
-        
-        let options = TaskRequestOptions(
-            conflictPolicy: forcefully ? .replace : .keep,
-            requiresNetwork: true,
-            extras: [
-                ChannelRegistrar.forcefullyKey: forcefully
-            ]
-        )
-        
-        self.taskManager.enqueueRequest(
-            taskID: ChannelRegistrar.taskID,
-            options: options
+                
+        self.workManager.dispatchWorkRequest(
+            AirshipWorkRequest(
+                workID: ChannelRegistrar.workID,
+                extras: [
+                    ChannelRegistrar.forcefullyKey: String(forcefully)
+                ],
+                requiresNetwork: true,
+                conflictPolicy: forcefully ? .replace : .keepIfNotStarted
+            )
         )
     }
-    
-    /**
-     * Performs a full channel registration.
-     */
-    @objc
-    public func performFullRegistration() {
-        self.dispatcher.dispatchAsync {
-            self.lastSuccessPayload = nil
-            self.lastUpdateDate = Date.distantPast
-            self.register(forcefully: true)
-        }
-    }
-    
-    private func checkAppRestore() {
-        if (self.dataStore.isAppRestore) {
-            self.clearChannelData()
-        }
-    }
-    
-    private func handleRegistrationTask(_ task: AirshipTask) {
-        AirshipLogger.trace("Handling registration task: \(task)")
-        
-        guard let payload = self.createPayload() else {
-            AirshipLogger.error("Airship payload is nil, unable to update")
-            task.taskFailed()
-            return
-        }
-        
-        let forcefully = task.requestOptions.extras[ChannelRegistrar.forcefullyKey] as? Bool ?? false
-        let channelID = self.channelID
-        let lastPayload = self.lastSuccessPayload
-        let shouldUpdate = self.shouldUpdate(payload, lastPayload: lastPayload)
-        
-        guard (channelID == nil || forcefully || shouldUpdate) else {
-            AirshipLogger.debug("Ignoring registration request, registration is up to date.")
-            task.taskCompleted()
-            return
-        }
-        
-        if let channelID = channelID {
-            self.updateChannel(channelID, payload: payload, lastPayload: lastPayload, task: task)
-        } else {
-            self.createChannel(payload: payload, task: task)
-        }
-    }
-    
-    private func updateChannel(_ channelID: String,
-                               payload: ChannelRegistrationPayload,
-                               lastPayload: ChannelRegistrationPayload?,
-                               task: AirshipTask) {
 
-        let minimizedPayload = payload.minimizePayload(previous: lastPayload)
-        self.channelAPIClient.updateChannel(withID: channelID, withPayload: minimizedPayload) { response, error in
-            guard let response = response else {
-                if let error = error {
-                    AirshipLogger.error("Failed request with error: \(error)")
-                }
-                
-                self.registrationFinished(payload, success: false) {
-                    task.taskFailed()
-                }
-
-                return
-            }
-            
-            if (response.isSuccess) {
-                AirshipLogger.debug("Channel updated succesfully")
-                self.registrationFinished(payload, success: true) {
-                    task.taskCompleted()
-                }
-
-            } else if (response.status == 409) {
-                AirshipLogger.trace("Channel conflict, recreating")
-                self.clearChannelData()
-                task.taskCompleted()
-                self.register(forcefully: true)
-            } else {
-                AirshipLogger.debug("Channel update failed with response \(response)")
-                self.registrationFinished(payload, success: false) {
-                    if (response.isServerError || response.status == 429) {
-                        task.taskFailed()
-                    } else {
-                        task.taskCompleted()
-                    }
-                }
-            }
-        }
-
-    }
-    
-    private func createChannel(payload: ChannelRegistrationPayload, task: AirshipTask) {
-        self.channelAPIClient.createChannel(withPayload: payload) { response, error in
-            
-            guard let response = response else {
-                if let error = error {
-                    AirshipLogger.error("Failed request with error: \(error)")
-                }
-                
-                self.registrationFinished(payload, success: false) {
-                    task.taskFailed()
-                }
-
-                return
-            }
-            
-            if (response.isSuccess) {
-                AirshipLogger.debug("Channel \(response.channelID!) created succesfully")
-                self._channelID = response.channelID
-                self.delegate?.channelCreated(channelID: response.channelID!, existing: response.status == 200)
-                self.registrationFinished(payload, success: true) {
-                    task.taskCompleted()
-                }
-            } else {
-                AirshipLogger.debug("Channel creation failed with response \(response)")
-                self.registrationFinished(payload, success: false) {
-                    if (response.isServerError || response.status == 429) {
-                        task.taskFailed()
-                    } else {
-                        task.taskCompleted()
-                    }
-                }
-
-            }
-        }
-    }
-    
-    private func clearChannelData() {
-        self._channelID = nil
-        self.lastUpdateDate = Date.distantPast
-        self.lastSuccessPayload = nil
-    }
-    
-    private func registrationFinished(
-        _ payload: ChannelRegistrationPayload,
-        success: Bool,
-        onComplete: () -> Void
+    func addChannelRegistrationExtender(
+        extender: @escaping (ChannelRegistrationPayload) async -> ChannelRegistrationPayload
     ) {
-        if (success) {
-            self.lastSuccessPayload = payload
-            self.lastUpdateDate = self.date.now
-            delegate?.registrationSucceeded()
-            
-            if (self.shouldUpdate(self.createPayload(), lastPayload: payload)) {
-                onComplete()
-                self.register(forcefully: false)
-            } else {
-                onComplete()
-            }
+        self.extenders.append(extender)
+    }
+
+    private func handleRegistrationWorkRequest(
+        _ workRequest: AirshipWorkRequest
+    ) async throws -> AirshipWorkResult  {
+
+        _ = await self.checkAppRestoreTask?.value
+
+        let payload = await self.makePayload()
+
+        guard let channelID = self.channelID else {
+            return try await self.createChannel(
+                payload: payload
+            )
+        }
+
+        let forcefully = workRequest.extras?[
+            ChannelRegistrar.forcefullyKey
+        ]?.lowercased() == "true"
+
+        let updatePayload = try await makeNextUpdatePayload(
+            channelID: channelID,
+            forcefully: forcefully,
+            payload: payload,
+            lastRegistrationInfo: self.lastRegistrationInfo
+        )
+
+        guard let updatePayload = updatePayload else {
+            AirshipLogger.debug(
+                "Ignoring registration request, registration is up to date."
+            )
+            return .success
+        }
+
+        return try await self.updateChannel(
+            channelID,
+            payload: payload,
+            minimizedPayload: updatePayload
+        )
+    }
+
+    private func updateChannel(
+        _ channelID: String,
+        payload: ChannelRegistrationPayload,
+        minimizedPayload: ChannelRegistrationPayload
+    ) async throws -> AirshipWorkResult {
+        let response = try await self.channelAPIClient.updateChannel(
+            channelID,
+            payload: minimizedPayload
+        )
+
+        AirshipLogger.debug("Channel update request finished with response: \(response)")
+
+        if response.isSuccess, let result = response.result {
+            await self.registrationSuccess(
+                channelID: channelID,
+                registrationInfo: LastRegistrationInfo(
+                    date: self.date.now,
+                    payload: payload,
+                    location: result.location
+                )
+            )
+
+            self.updatesSubject.send(
+                .updated(channelID: channelID)
+            )
+
+            return .success
+        } else if response.statusCode == 409 {
+            AirshipLogger.trace("Channel conflict, recreating")
+            self.clearChannelData()
+            self.register(forcefully: true)
+            return .success
         } else {
-            delegate?.registrationFailed()
-            onComplete()
+            if response.isServerError || response.statusCode == 429 {
+                return .failure
+            } else {
+                return .success
+            }
         }
     }
 
-    
-    private func shouldUpdate(_ payload: ChannelRegistrationPayload?, lastPayload: ChannelRegistrationPayload?) -> Bool {
-        guard let payload = payload else {
-            return false
-        }
-        
-        let timeSinceLastUpdate = self.date.now.timeIntervalSince(self.lastUpdateDate)
-        
-        if (lastPayload == nil) {
-            AirshipLogger.trace("Should update registration. Last payload is nil.")
-            return true;
-        }
-        
-        if (payload != lastPayload) {
-            AirshipLogger.trace("Should update registration. Channel registration payload has changed.")
-            return true
-        }
-        
+    private func createChannel(
+        payload: ChannelRegistrationPayload
+    ) async throws -> AirshipWorkResult {
 
-        if (timeSinceLastUpdate >= (24 * 60 * 60) && self.appStateTracker.state == .active) {
-            AirshipLogger.trace("Should update registration. Time since last registration time is greater than 24 hours.")
-            return true
+        let response = try await self.channelAPIClient.createChannel(
+            payload: payload
+        )
+
+        AirshipLogger.debug("Channel create request finished with response: \(response)")
+
+        guard response.isSuccess, let result = response.result else {
+            if response.isServerError || response.statusCode == 429 {
+                return .failure
+            } else {
+                return .success
+            }
         }
-        
-        return false
+
+        self.channelID = result.channelID
+
+        self.updatesSubject.send(
+            .created(
+                channelID: result.channelID,
+                isExisting: response.statusCode == 200
+            )
+        )
+
+        await self.registrationSuccess(
+            channelID: result.channelID,
+            registrationInfo: LastRegistrationInfo(
+                date: self.date.now,
+                payload: payload,
+                location: result.location
+            )
+        )
+        return .success
     }
-    
-    private func createPayload() -> ChannelRegistrationPayload? {
-        var result: ChannelRegistrationPayload?
-        let semaphore = Semaphore()
-        
-        guard let strongDelegate = delegate else {
-            return nil
+
+    private func clearChannelData() {
+        self.channelID = nil
+        self.lastRegistrationInfo = nil
+    }
+
+    private func registrationSuccess(
+        channelID: String,
+        registrationInfo: LastRegistrationInfo
+    ) async {
+        self.lastRegistrationInfo = registrationInfo
+        let nextUploadPayload = try? await self.makeNextUpdatePayload(
+            channelID: channelID,
+            forcefully: false,
+            payload: await makePayload(),
+            lastRegistrationInfo: registrationInfo
+        )
+
+        if (nextUploadPayload != nil) {
+            self.register(forcefully: false)
         }
-        
-        strongDelegate.createChannelPayload { payload in
-            result = payload
-            semaphore.signal()
+    }
+
+    private func makePayload() async -> ChannelRegistrationPayload {
+        var result: ChannelRegistrationPayload = ChannelRegistrationPayload()
+
+        for extender in extenders {
+            result = await extender(result)
         }
-        
-        semaphore.wait()
+
         return result
     }
 
-}
+    private func makeNextUpdatePayload(
+        channelID: String,
+        forcefully: Bool,
+        payload: ChannelRegistrationPayload,
+        lastRegistrationInfo: LastRegistrationInfo?
+    ) async throws -> ChannelRegistrationPayload? {
+        let currentLocation = try self.channelAPIClient.makeChannelLocation(
+            channelID: channelID
+        )
 
+        guard let lastRegistrationInfo = lastRegistrationInfo,
+              currentLocation == lastRegistrationInfo.location
+        else {
+            return payload
+        }
+
+        let timeSinceLastUpdate = self.date.now.timeIntervalSince(
+            lastRegistrationInfo.date
+        )
+
+        let isActive = await self.appStateTracker.state == .active
+        let shouldUpdateForActive = isActive && timeSinceLastUpdate >= (24 * 60 * 60)
+
+        guard forcefully || shouldUpdateForActive || payload != lastRegistrationInfo.payload else {
+            return nil
+        }
+
+        return payload.minimizePayload(previous: lastRegistrationInfo.payload)
+    }
+
+    fileprivate struct LastRegistrationInfo: Codable {
+        let date: Date
+        let payload: ChannelRegistrationPayload
+        let location: URL
+    }
+}

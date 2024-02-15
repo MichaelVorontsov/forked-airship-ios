@@ -7,7 +7,7 @@ import Foundation
 
 @available(tvOS, unavailable)
 @objc(UAWebView)
-public class WebView : WKWebView {
+public class WebView: WKWebView {
     required init?(coder: NSCoder) {
         // An initial frame for initialization must be set, but it will be overridden
         // below by the autolayout constraints set in interface builder.
@@ -17,7 +17,6 @@ public class WebView : WKWebView {
         config.allowsPictureInPictureMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
-
         super.init(frame: frame, configuration: config)
 
         // Apply constraints from interface builder.
@@ -26,8 +25,8 @@ public class WebView : WKWebView {
 
     @discardableResult
     public override func load(_ request: URLRequest) -> WKNavigation? {
-        guard Utils.connectionType() != ConnectionType.none else {
-            // If we have no connection, modify the request object to prefer the most agressive cache policy
+        guard AirshipUtils.connectionType() != ConnectionType.none else {
+            // If we have no connection, modify the request object to prefer the most aggressive cache policy
             var modifiedRequest = request
             modifiedRequest.cachePolicy = .returnCacheDataElseLoad
             return super.load(modifiedRequest)

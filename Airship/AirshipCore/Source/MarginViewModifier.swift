@@ -3,10 +3,10 @@
 import Foundation
 import SwiftUI
 
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 struct MarginViewModifier: ViewModifier {
     let margin: Margin
-    
+
     @ViewBuilder
     func body(content: Content) -> some View {
         content
@@ -17,9 +17,9 @@ struct MarginViewModifier: ViewModifier {
     }
 }
 
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 extension View {
-    
+
     @ViewBuilder
     internal func applyMargin(edge: Edge.Set, margin: CGFloat?) -> some View {
         if let margin = margin {
@@ -28,7 +28,7 @@ extension View {
             self
         }
     }
-    
+
     @ViewBuilder
     func margin(_ margin: Margin?) -> some View {
         if let margin = margin {

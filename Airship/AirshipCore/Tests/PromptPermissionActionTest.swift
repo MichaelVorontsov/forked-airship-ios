@@ -2,8 +2,7 @@
 
 import XCTest
 
-@testable
-import AirshipCore
+@testable import AirshipCore
 
 class PromptPermissionActionTest: XCTestCase {
 
@@ -16,133 +15,151 @@ class PromptPermissionActionTest: XCTestCase {
         }
     }
 
-    func testAcceptsArguments() throws {
+    func testAcceptsArguments() async throws {
 
         let validSituations = [
-            Situation.foregroundInteractiveButton,
-            Situation.launchedFromPush,
-            Situation.manualInvocation,
-            Situation.webViewInvocation,
-            Situation.automation,
-            Situation.foregroundPush
+            ActionSituation.foregroundInteractiveButton,
+            ActionSituation.launchedFromPush,
+            ActionSituation.manualInvocation,
+            ActionSituation.webViewInvocation,
+            ActionSituation.automation,
+            ActionSituation.foregroundPush,
         ]
 
         let rejectedSituations = [
-            Situation.backgroundPush,
-            Situation.backgroundInteractiveButton
+            ActionSituation.backgroundPush,
+            ActionSituation.backgroundInteractiveButton,
         ]
 
-        validSituations.forEach { (situation) in
-            let args = ActionArguments(value: "anything", with: situation)
-            XCTAssertTrue(self.action.acceptsArguments(args))
+        for situation in validSituations {
+            let args = ActionArguments(value: AirshipJSON.string("anything"), situation: situation)
+            let result = await self.action.accepts(arguments: args)
+            XCTAssertTrue(result)
         }
 
-        rejectedSituations.forEach { (situation) in
-            let args = ActionArguments(value: "anything", with: situation)
-            XCTAssertFalse(self.action.acceptsArguments(args))
+        for situation in rejectedSituations {
+            let args = ActionArguments(value: AirshipJSON.string("anything"), situation: situation)
+            let result = await self.action.accepts(arguments: args)
+            XCTAssertFalse(result)
         }
     }
 
-    func testPrompt() throws {
+    func testPrompt() async throws {
         let actionValue: [String: Any] = [
-            "permission": Permission.location.stringValue,
+            "permission": AirshipPermission.location.stringValue,
             "enable_airship_usage": true,
             "fallback_system_settings": true,
         ]
 
-        let arguments = ActionArguments(value: actionValue, with: .manualInvocation)
+        let arguments = ActionArguments(
+            value: try! AirshipJSON.wrap(actionValue)
+        )
 
         let prompted = self.expectation(description: "Prompted")
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
             XCTAssertEqual(permission, .location)
             XCTAssertTrue(enableAirshipUsage)
             XCTAssertTrue(fallbackSystemSetting)
-            completionHandler(.notDetermined, .notDetermined)
             prompted.fulfill()
+            return (.notDetermined, .notDetermined)
         }
 
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { result in
-            XCTAssertNil(result.value)
-            actionFinished.fulfill()
-        }
 
-        self.wait(for: [actionFinished, prompted], timeout: 1)
+        let result = try await self.action.perform(arguments: arguments)
+        XCTAssertNil(result)
+        await self.fulfillmentCompat(of: [prompted], timeout: 10)
     }
 
-    func testPromptDefaultArguments() throws {
-        let actionValue = ["permission": Permission.displayNotifications.stringValue]
-        let arguments = ActionArguments(value: actionValue, with: .manualInvocation)
+    func testPromptDefaultArguments() async throws {
+        let actionValue = [
+            "permission": AirshipPermission.displayNotifications.stringValue
+        ]
+        let arguments = ActionArguments(
+            value: try! AirshipJSON.wrap(actionValue),
+            situation: .manualInvocation
+        )
 
         let prompted = self.expectation(description: "Prompted")
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
             XCTAssertEqual(permission, .displayNotifications)
             XCTAssertFalse(enableAirshipUsage)
             XCTAssertFalse(fallbackSystemSetting)
-            completionHandler(.notDetermined, .notDetermined)
             prompted.fulfill()
+            return (.notDetermined, .notDetermined)
         }
 
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { result in
-            XCTAssertNil(result.value)
-            actionFinished.fulfill()
-        }
 
-        self.wait(for: [actionFinished, prompted], timeout: 1)
+        let result = try await self.action.perform(arguments: arguments)
+        XCTAssertNil(result)
+        await self.fulfillmentCompat(of: [prompted], timeout: 10)
     }
 
-    func testInvalidPermission() throws {
+    func testInvalidPermission() async throws {
         let actionValue: [String: Any] = [
             "permission": "not a permission"
         ]
 
-        let arguments = ActionArguments(value: actionValue, with: .manualInvocation)
+        let arguments = ActionArguments(
+            value: try! AirshipJSON.wrap(actionValue),
+            situation: .manualInvocation
+        )
 
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
             XCTFail()
+            return (.notDetermined, .notDetermined)
         }
 
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { result in
-            XCTAssertNotNil(result.error)
-            actionFinished.fulfill()
-        }
-
-        self.wait(for: [actionFinished], timeout: 1)
+        do {
+            _ = try await self.action.perform(arguments: arguments)
+            XCTFail("Should throw")
+        } catch {}
     }
 
-    func testResultReceiver() throws {
+    func testResultReceiver() async throws {
         let actionValue: [String: Any] = [
-            "permission": Permission.location.stringValue
+            "permission": AirshipPermission.location.stringValue
         ]
 
         let resultReceived = self.expectation(description: "Result received")
 
-        let resultRecevier: (Permission, PermissionStatus, PermissionStatus) -> Void = { permission, start, end in
-            XCTAssertEqual(.notDetermined, start)
-            XCTAssertEqual(.granted, end)
-            XCTAssertEqual(.location, permission)
-            resultReceived.fulfill()
+        let resultRecevier:
+            @Sendable (AirshipPermission, AirshipPermissionStatus, AirshipPermissionStatus) -> Void = {
+                permission,
+                start,
+                end in
+                XCTAssertEqual(.notDetermined, start)
+                XCTAssertEqual(.granted, end)
+                XCTAssertEqual(.location, permission)
+                resultReceived.fulfill()
+            }
+
+        let metadata = [
+            PromptPermissionAction.resultReceiverMetadataKey: resultRecevier
+        ]
+
+        let arguments = ActionArguments(
+            value: try! AirshipJSON.wrap(actionValue),
+            situation: .manualInvocation,
+            metadata: metadata
+        )
+
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
+            return (.notDetermined, .granted)
         }
 
-        let metadata = [PromptPermissionAction.resultReceiverMetadataKey: resultRecevier]
-
-        let arguments = ActionArguments(value: actionValue,
-                                        with: .manualInvocation,
-                                        metadata: metadata)
-
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
-            completionHandler(.notDetermined, .granted)
-        }
-
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { _ in
-            actionFinished.fulfill()
-        }
-
-        self.wait(for: [actionFinished, resultReceived], timeout: 1)
+        _ = try await self.action.perform(arguments: arguments)
+        await self.fulfillmentCompat(of: [resultReceived], timeout: 10)
     }
 }
-
-

@@ -7,7 +7,7 @@ import Foundation
 ///
 @objc(UARegistrationDelegate)
 public protocol RegistrationDelegate: NSObjectProtocol {
-#if !os(tvOS)
+    #if !os(tvOS)
     /// Called when APNS registration completes.
     ///
     /// - Parameters:
@@ -16,11 +16,12 @@ public protocol RegistrationDelegate: NSObjectProtocol {
     ///   - status: The authorization status.
     @objc
     optional func notificationRegistrationFinished(
-        withAuthorizedSettings authorizedSettings: UAAuthorizedNotificationSettings,
+        withAuthorizedSettings authorizedSettings:
+            UAAuthorizedNotificationSettings,
         categories: Set<UNNotificationCategory>,
         status: UAAuthorizationStatus
     )
-#endif
+    #endif
 
     /// Called when APNS registration completes.
     ///
@@ -29,20 +30,25 @@ public protocol RegistrationDelegate: NSObjectProtocol {
     ///   - status: The authorization status.
     @objc
     optional func notificationRegistrationFinished(
-        withAuthorizedSettings authorizedSettings: UAAuthorizedNotificationSettings,
+        withAuthorizedSettings authorizedSettings:
+            UAAuthorizedNotificationSettings,
         status: UAAuthorizationStatus
     )
 
     /// Called when notification authentication changes with the new authorized settings.
     ///
     /// - Parameter authorizedSettings: UAAuthorizedNotificationSettings The newly changed authorized settings.
-    @objc optional func notificationAuthorizedSettingsDidChange(_ authorizedSettings: UAAuthorizedNotificationSettings)
+    @objc optional func notificationAuthorizedSettingsDidChange(
+        _ authorizedSettings: UAAuthorizedNotificationSettings
+    )
 
     /// Called when the UIApplicationDelegate's application:didRegisterForRemoteNotificationsWithDeviceToken:
     /// delegate method is called.
     ///
     /// - Parameter deviceToken: The APNS device token.
-    @objc optional func apnsRegistrationSucceeded(withDeviceToken deviceToken: Data)
+    @objc optional func apnsRegistrationSucceeded(
+        withDeviceToken deviceToken: Data
+    )
 
     /// Called when the UIApplicationDelegate's application:didFailToRegisterForRemoteNotificationsWithError:
     /// delegate method is called.

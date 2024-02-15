@@ -1,47 +1,39 @@
 /* Copyright Airship and Contributors */
 
-/**
- * - Note: For Internal use only :nodoc:
- */
-class AppExitEvent: NSObject, Event {
-    private lazy var analytics = Airship.requireComponent(ofType: AnalyticsProtocol.self)
-    
-    convenience init(analytics: AnalyticsProtocol) {
-        self.init()
-        self.analytics = analytics
+/// - Note: For Internal use only :nodoc:
+class AppExitEvent: NSObject, AirshipEvent {
+    private let _data: [AnyHashable: Any]
+
+    init(sessionState: SessionState) {
+        self._data = Self.gatherData(sessionState: sessionState)
     }
-    
+
     @objc
     public var priority: EventPriority {
-        get {
-            return .normal
-        }
+        return .normal
     }
 
     @objc
-    public var eventType : String {
-        get {
-            return "app_exit"
-        }
+    public var eventType: String {
+        return "app_exit"
     }
 
+   
     @objc
-    public var data: [AnyHashable : Any] {
-        get {
-            return self.gatherData()
-        }
+    public var data: [AnyHashable: Any] {
+        return self._data
     }
-    
-    open func gatherData() -> [AnyHashable : Any] {
-        var data: [AnyHashable : Any] = [:]
 
-        data["push_id"] = self.analytics.conversionSendID
-        data["metadata"] = self.analytics.conversionPushMetadata
+    private static func gatherData(sessionState: SessionState) -> [AnyHashable: Any] {
+        var data: [AnyHashable: Any] = [:]
+
+        data["push_id"] = sessionState.conversionSendID
+        data["metadata"] = sessionState.conversionMetadata
         #if !os(watchOS)
-        data["connection_type"] = Utils.connectionType()
+        data["connection_type"] = AirshipUtils.connectionType()
         #endif
 
         return data
     }
-    
+
 }

@@ -6,9 +6,11 @@
 #import "UAScheduleEdits.h"
 #import "UAFrequencyConstraint+Internal.h"
 
-@protocol UARemoteDataProvider;
+@class UAInAppCoreSwiftBridge;
 @class UAPreferenceDataStore;
 @class UAChannel;
+@class UADispatcher;
+@class UARemoteDataInfo;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -49,7 +51,7 @@ NS_ASSUME_NONNULL_BEGIN
  * Called with updated constraints.
  * @param constraints The updated constraints.
  */
-- (void)updateConstraints:(NSArray<UAFrequencyConstraint *> *)constraints;
+- (void)updateConstraints:(NSArray<UAFrequencyConstraint *> *)constraints completionHandler:(void (^)(BOOL))completionHandler;
 
 @end
 
@@ -73,26 +75,19 @@ NS_ASSUME_NONNULL_BEGIN
 /**
  * Create a remote data client for in-app messaging.
  *
- * @param remoteDataProvider The remote data provider.
+ * @param inAppCoreSwiftBridge The in-app core swift bridge.
  * @param dataStore A UAPreferenceDataStore to store persistent preferences
  * @param channel The channel.
  */
-+ (instancetype)clientWithRemoteDataProvider:(id<UARemoteDataProvider>)remoteDataProvider
-                                   dataStore:(UAPreferenceDataStore *)dataStore
-                                     channel:(UAChannel *)channel;
++ (instancetype)clientWithInAppCoreSwiftBridge:(UAInAppCoreSwiftBridge *)inAppCoreSwiftBridge
+                                     dataStore:(UAPreferenceDataStore *)dataStore
+                                       channel:(UAChannel *)channel;
 
-+ (instancetype)clientWithRemoteDataProvider:(id<UARemoteDataProvider>)remoteDataProvider
-                                   dataStore:(UAPreferenceDataStore *)dataStore
-                                     channel:(UAChannel *)channel
-                              operationQueue:(NSOperationQueue *)operationQueue
-                                  SDKVersion:(NSString *)SDKVersion;
-
-/**
- * Notifies when the schedules have been updated.
- *
- * @param completionHandler The completion handler to run when check completes.
- */
-- (void)notifyOnUpdate:(void (^)(void))completionHandler;
++ (instancetype)clientWithInAppCoreSwiftBridge:(UAInAppCoreSwiftBridge *)inAppCoreSwiftBridge
+                                     dataStore:(UAPreferenceDataStore *)dataStore
+                                       channel:(UAChannel *)channel
+                           schedulerDispatcher:(UADispatcher *)schedulerDispatcher
+                                    SDKVersion:(NSString *)SDKVersion;
 
 /**
  * Subscribes to updates.
@@ -104,27 +99,14 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (void)unsubscribe;
 
-/**
- * Checks if a schedule is remote.
- * @param schedule The schedule.
- * @returns `YES` is remote, otherwise `NO`.
- */
-- (BOOL)isRemoteSchedule:(UASchedule *)schedule;
 
-/**
- * Checks if a schedule is remote and up to date.
- * @param schedule The schedule
- * @returns `YES` is remote and up to date, otherwise `NO`.
- */
-- (BOOL)isScheduleUpToDate:(UASchedule *)schedule;
+- (void)isScheduleUpToDate:(UASchedule *)schedule completionHandler:(void (^)(BOOL))completionHandler;
+- (void)scheduleRequiresRefresh:(UASchedule *)schedule completionHandler:(void (^)(BOOL))completionHandler;
+- (void)bestEffortRefresh:(UASchedule *)schedule completionHandler:(void (^)(BOOL))completionHandler;
+- (void)notifyOutdatedSchedule:(UASchedule *)schedule completionHandler:(void (^)(void))completionHandler;
+- (void)waitFullRefresh:(UASchedule *)schedule completionHandler:(void (^)(void))completionHandler;
 
-/**
- * Attempts to refresh remote data.
- * @param forceRefresh YES if the refresh should be forced, otherwise NO.
- * @param completionHandler The completion handler.
- */
-- (void)attemptRemoteDataRefreshWithForce:(BOOL)forceRefresh completionHandler:(void (^)(void))completionHandler;
-
+- (UARemoteDataInfo *)remoteDataInfoFromSchedule:(UASchedule *)schedule;
 @end
 
 NS_ASSUME_NONNULL_END

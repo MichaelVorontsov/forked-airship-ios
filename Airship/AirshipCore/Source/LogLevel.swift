@@ -2,11 +2,9 @@
 
 import Foundation
 
-/**
- * Represents the possible log levels.
- */
+/// Represents the possible log levels.
 @objc(UALogLevel)
-public enum LogLevel: Int {
+public enum AirshipLogLevel: Int, Sendable {
     /**
      * Undefined log level.
      */
@@ -52,10 +50,10 @@ public enum LogLevel: Int {
     case debug = 4
 
     /**
-     * Log detailed tracing messages.
+     * Log detailed verbose messages.
      *
      * Used for reporting highly detailed SDK status that can be useful when debugging and troubleshooting.
      */
-    @objc(UALogLevelTrace)
-    case trace = 5
+    @objc(UALogLevelVerbose)
+    case verbose = 5
 }

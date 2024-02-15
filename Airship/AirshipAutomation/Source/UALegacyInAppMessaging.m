@@ -1,13 +1,14 @@
 /* Copyright Airship and Contributors */
 
 #import "UALegacyInAppMessaging+Internal.h"
-#import "UALegacyInAppMessage.h"
+#import "UALegacyInappMessage+Internal.h"
 #import "UAInAppReporting+Internal.h"
 #import "UAInAppMessage+Internal.h"
 #import "UAInAppMessageSchedule.h"
 #import "UAInAppAutomation.h"
 #import "UAInAppMessageBannerDisplayContent.h"
 #import "UAAirshipAutomationCoreImport.h"
+#import "UASchedule+Internal.h"
 
 #if __has_include("AirshipKit/AirshipKit-Swift.h")
 #import <AirshipKit/AirshipKit-Swift.h>
@@ -250,6 +251,8 @@ NSString *const UALastDisplayedInAppMessageID = @"UALastDisplayedInAppMessageID"
         builder.triggers = @[trigger];
         builder.end = message.expiry;
         builder.identifier = message.identifier;
+        builder.messageType = message.messageType;
+        builder.campaigns = message.campaigns;
 
         // Allow the app to customize the schedule info builder if necessary
         if (extender && [extender respondsToSelector:@selector(extendScheduleBuilder:message:)]) {

@@ -3,15 +3,19 @@
 import Foundation
 import UserNotifications
 
-protocol NotificationRegistrar {
+protocol NotificationRegistrar: Sendable {
 
-#if !os(tvOS)
+    #if !os(tvOS)
+    @MainActor
     func setCategories(_ categories: Set<UNNotificationCategory>)
-#endif
+    #endif
 
-    func checkStatus(completionHandler: @escaping (UAAuthorizationStatus, UAAuthorizedNotificationSettings) -> Void)
+    @MainActor
+    func checkStatus() async -> (UAAuthorizationStatus, UAAuthorizedNotificationSettings)
 
-    func updateRegistration(options: UANotificationOptions,
-                            skipIfEphemeral: Bool,
-                            completionHandler: @escaping () -> Void)
+    @MainActor
+    func updateRegistration(
+        options: UANotificationOptions,
+        skipIfEphemeral: Bool
+    ) async -> Void
 }

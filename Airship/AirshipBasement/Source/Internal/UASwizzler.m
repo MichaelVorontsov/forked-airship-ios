@@ -81,9 +81,9 @@
     }
 }
 - (void)swizzleClass:(Class)clazz
-               selector:(nonnull SEL)selector
-               protocol:(Protocol *)protocol
-         implementation:(IMP)implementation {
+            selector:(nonnull SEL)selector
+            protocol:(Protocol *)protocol
+      implementation:(IMP)implementation {
     Method method = class_getInstanceMethod(clazz, selector);
     if (method) {
         UA_LTRACE(@"Swizzling implementation for %@ class %@", NSStringFromSelector(selector), clazz);

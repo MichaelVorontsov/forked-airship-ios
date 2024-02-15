@@ -1,11 +1,10 @@
-
 // Copyright Airship and Contributors
 
-import Foundation;
+import Foundation
 
 @objc(UAirshipVersion)
-public class AirshipVersion : NSObject {
-    public static let version = "16.12.2"
+public class AirshipVersion: NSObject {
+    public static let version = "17.7.3"
 
     @objc
     public class func get() -> String {

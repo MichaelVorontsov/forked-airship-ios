@@ -1,93 +1,90 @@
 /* Copyright Airship and Contributors */
 
-import Combine
+import Foundation
 
-/**
- * Subscribes to/unsubscribes from a subscription list. This Action is registered under the
- * names ^sla, ^sl, and subscription_list_action.
- *
- * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush
- * UASituationWebViewInvocation, UASituationForegroundInteractiveButton,
- * UASituationBackgroundInteractiveButton, UASituationManualInvocation, and
- * UASituationAutomation
- *
- * Default predicate: Rejects foreground pushes with visible display options
- *
- * Result value: nil
- *
- * Error: nil
- *
- * Fetch result: UAActionFetchResultNoData
- */
-@objc(UASubscriptionListAction)
-public class SubscriptionListAction : NSObject, Action {
-    @objc
-    public static let name = "subscription_list_action"
+/// Subscribes to/unsubscribes from a subscription list.
+///
+/// Valid situations: `ActionSituation.foregroundPush`, `ActionSituation.launchedFromPush`
+/// `ActionSituation.webViewInvocation`, `ActionSituation.foregroundInteractiveButton`,
+/// `ActionSituation.backgroundInteractiveButton`, `ActionSituation.manualInvocation`, and
+/// `ActionSituation.automation`
+public final class SubscriptionListAction: AirshipAction {
 
-    @objc
-    public static let altName = "edit_subscription_list_action"
-
-    @objc
-    public static let shortName = "^sla"
-
-    @objc
-    public static let altShortName = "^sl"
+    /// Default names - "subscription_list_action", "^sl", "edit_subscription_list_action", "^sla"
+    public static let defaultNames = [
+        "subscription_list_action", "^sl", "edit_subscription_list_action", "^sla"
+    ]
     
-    private let channel: () -> ChannelProtocol
-    private let contact: () -> ContactProtocol
-    
-    private lazy var decoder: JSONDecoder = {
+    /// Default predicate - rejects foreground pushes with visible display options
+    public static let defaultPredicate: @Sendable (ActionArguments) -> Bool = { args in
+        return args.metadata[ActionArguments.isForegroundPresentationMetadataKey] as? Bool != true
+    }
+
+    private let channel: @Sendable () -> AirshipChannelProtocol
+    private let contact: @Sendable () -> AirshipContactProtocol
+  
+    private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
     
-    @objc
-    public override convenience init() {
-        self.init(channel: Channel.supplier,
-                  contact: Contact.supplier)
+    public var _decoder: JSONDecoder {
+        return decoder
     }
-    
-    @objc
-    public init(channel: @escaping () -> ChannelProtocol,
-                contact: @escaping () -> ContactProtocol) {
+
+    public convenience init() {
+        self.init(
+            channel: Airship.componentSupplier(),
+            contact: Airship.componentSupplier()
+        )
+    }
+
+
+    init(
+        channel: @escaping @Sendable () -> AirshipChannelProtocol,
+        contact: @escaping @Sendable () -> AirshipContactProtocol
+    ) {
         self.channel = channel
         self.contact = contact
     }
-    
-    public func acceptsArguments(_ arguments: ActionArguments) -> Bool {
-        guard arguments.situation != .backgroundPush,
-              arguments.value != nil
+
+    public func accepts(arguments: ActionArguments) async -> Bool {
+        guard arguments.situation != .backgroundPush
         else {
             return false
         }
 
         return true
     }
-    
-    public func perform(with arguments: ActionArguments, completionHandler: @escaping UAActionCompletionHandler) {
-        do {
-            let edits = try parse(args: arguments)
-            applyChannelEdits(edits)
-            applyContactEdits(edits)
-            completionHandler(ActionResult.empty())
-        } catch {
-            completionHandler(ActionResult(error: error))
-        }
+
+    public func perform(arguments: ActionArguments) async throws -> AirshipJSON? {
+        
+        let edits = try parse(args: arguments)
+        applyChannelEdits(edits)
+        applyContactEdits(edits)
+        return arguments.value
+        
     }
 
     private func parse(args: ActionArguments) throws -> [Edit] {
-        var edits: Any? = args.value
+        var edits: Any? = args.value.unWrap()
 
-        if let value = args.value as? [String: Any] {
+        let unwrapped = args.value.unWrap()
+        if let value = unwrapped as? [String: Any] {
             edits = value["edits"]
         }
 
         guard let edits = edits else {
-            throw AirshipErrors.error("Invalid argument \(String(describing: args.value))")
+            throw AirshipErrors.error(
+                "Invalid argument \(String(describing: args.value))"
+            )
         }
 
-        let data = try JSONSerialization.data(withJSONObject: edits, options: [])
+        let data = try JSONSerialization.data(
+            withJSONObject: edits,
+            options: []
+        )
         return try self.decoder.decode([Edit].self, from: data)
     }
 
@@ -99,15 +96,18 @@ public class SubscriptionListAction : NSObject, Action {
             return nil
         }
 
-        if (!contactEdits.isEmpty) {
-            self.contact().editSubscriptionLists { editor in
-                contactEdits.forEach { edit in
-                    switch (edit.action) {
-                    case .subscribe: editor.subscribe(edit.list, scope: edit.scope)
-                    case .unsubscribe: editor.unsubscribe(edit.list, scope: edit.scope)
+        if !contactEdits.isEmpty {
+            self.contact()
+                .editSubscriptionLists { editor in
+                    contactEdits.forEach { edit in
+                        switch edit.action {
+                        case .subscribe:
+                            editor.subscribe(edit.list, scope: edit.scope)
+                        case .unsubscribe:
+                            editor.unsubscribe(edit.list, scope: edit.scope)
+                        }
                     }
                 }
-            }
         }
     }
 
@@ -119,15 +119,16 @@ public class SubscriptionListAction : NSObject, Action {
             return nil
         }
 
-        if (!channelEdits.isEmpty) {
-            self.channel().editSubscriptionLists { editor in
-                channelEdits.forEach { edit in
-                    switch (edit.action) {
-                    case .subscribe: editor.subscribe(edit.list)
-                    case .unsubscribe: editor.unsubscribe(edit.list)
+        if !channelEdits.isEmpty {
+            self.channel()
+                .editSubscriptionLists { editor in
+                    channelEdits.forEach { edit in
+                        switch edit.action {
+                        case .subscribe: editor.subscribe(edit.list)
+                        case .unsubscribe: editor.unsubscribe(edit.list)
+                        }
                     }
                 }
-            }
         }
     }
 
@@ -151,7 +152,7 @@ public class SubscriptionListAction : NSObject, Action {
         }
     }
 
-    internal struct ContactEdit : Decodable {
+    internal struct ContactEdit: Decodable {
         let list: String
         let action: SubscriptionAction
         let scope: ChannelScope
@@ -165,8 +166,13 @@ public class SubscriptionListAction : NSObject, Action {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.list = try container.decode(String.self, forKey: .list)
-            self.action = try container.decode(SubscriptionAction.self, forKey: .action)
-            self.scope = try ChannelScope.fromString(try container.decode(String.self, forKey: .scope))
+            self.action = try container.decode(
+                SubscriptionAction.self,
+                forKey: .action
+            )
+            self.scope = try ChannelScope.fromString(
+                try container.decode(String.self, forKey: .scope)
+            )
         }
     }
 
@@ -180,14 +186,21 @@ public class SubscriptionListAction : NSObject, Action {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            let type = try container.decode(SubscriptionType.self, forKey: .type)
+            let type = try container.decode(
+                SubscriptionType.self,
+                forKey: .type
+            )
             let singleValueContainer = try decoder.singleValueContainer()
 
             switch type {
             case .channel:
-                self = .channel((try singleValueContainer.decode(ChannelEdit.self)))
+                self = .channel(
+                    (try singleValueContainer.decode(ChannelEdit.self))
+                )
             case .contact:
-                self = .contact((try singleValueContainer.decode(ContactEdit.self)))
+                self = .contact(
+                    (try singleValueContainer.decode(ContactEdit.self))
+                )
             }
         }
     }

@@ -3,7 +3,7 @@
 #import "UAScheduleEdits+Internal.h"
 #import "UAAirshipAutomationCoreImport.h"
 #import "UAInAppMessage+Internal.h"
-#import "UAScheduleAudience.h"
+#import "UAScheduleAudience+Internal.h"
 #import "UASchedule+Internal.h"
 
 #if __has_include("AirshipKit/AirshipKit-Swift.h")
@@ -25,7 +25,6 @@
 @property(nonatomic, strong, nullable) NSNumber *editGracePeriod;
 @property(nonatomic, strong, nullable) NSNumber *interval;
 @property(nonatomic, copy, nullable) NSDictionary *metadata;
-@property(nonatomic, strong, nullable) UAScheduleAudience *audience;
 @end
 
 @implementation UAScheduleEdits
@@ -35,6 +34,11 @@
 @synthesize campaigns = _campaigns;
 @synthesize reportingContext = _reportingContext;
 @synthesize frequencyConstraintIDs = _frequencyConstraintIDs;
+@synthesize audienceJSON = _audienceJSON;
+@synthesize isNewUserEvaluationDate = _isNewUserEvaluationDate;
+@synthesize messageType = _messageType;
+@synthesize bypassHoldoutGroups = _bypassHoldoutGroups;
+@synthesize productId = _productId;
 
 - (instancetype)initWithData:(NSString *)data
                         type:(NSNumber *)type
@@ -46,6 +50,7 @@
         _campaigns = builder.campaigns;
         _reportingContext = builder.reportingContext;
         _frequencyConstraintIDs = builder.frequencyConstraintIDs;
+        _audienceJSON = builder.audienceJSON ?: [builder.audience toJSON];
         self.priority = builder.priority;
         self.limit = builder.limit;
         self.start = builder.start;
@@ -53,7 +58,7 @@
         self.editGracePeriod = builder.editGracePeriod;
         self.interval = builder.interval;
         self.metadata = builder.metadata;
-        self.audience = builder.audience;
+        _productId = builder.productId;
     }
 
     return self;
@@ -104,6 +109,13 @@
     return [[UAScheduleEdits alloc] initWithData:nil type:nil builder:builder];
 }
 
+- (UAScheduleAudience *)audience {
+    if (self.audienceJSON) {
+        return [UAScheduleAudience audienceWithJSON:self.audienceJSON error:nil];
+    }
+    return nil;
+}
+
 
 - (NSString *)description {
     return [NSString stringWithFormat:@"Data: %@\n"
@@ -118,7 +130,8 @@
             "Audience: %@\n"
             "Campaigns: %@\n"
             "Reporting Context: %@\n"
-            "Frequency Constraint IDs: %@",
+            "Frequency Constraint IDs: %@\n"
+            "ProductId: %@",
             self.data,
             self.type,
             self.priority,
@@ -128,10 +141,12 @@
             self.editGracePeriod,
             self.interval,
             self.metadata,
-            self.audience,
+            self.audienceJSON,
             self.campaigns,
             self.reportingContext,
-            self.frequencyConstraintIDs];
+            self.frequencyConstraintIDs,
+            self.productId
+    ];
 }
 
 @end

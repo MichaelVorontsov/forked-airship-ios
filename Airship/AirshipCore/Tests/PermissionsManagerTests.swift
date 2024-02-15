@@ -1,60 +1,50 @@
 /* Copyright Airship and Contributors */
 
 import XCTest
-@testable
-import AirshipCore
+
+@testable import AirshipCore
 
 class PermissionsManagerTests: XCTestCase {
 
-    let permissionsManager = PermissionsManager()
+    let permissionsManager = AirshipPermissionsManager()
     let delegate = TestPermissionsDelegate()
 
-    func testCheckPermissionNotConfigured() throws {
-        let callbackCalled = self.expectation(description: "Callback called")
-        self.permissionsManager.checkPermissionStatus(.displayNotifications) { status in
-            XCTAssertEqual(PermissionStatus.notDetermined, status)
-            callbackCalled.fulfill()
-        }
-
-        wait(for: [callbackCalled], timeout: 1)
+    func testCheckPermissionNotConfigured() async throws {
+        let status = await self.permissionsManager.checkPermissionStatus(.displayNotifications)
+        
+        XCTAssertEqual(AirshipPermissionStatus.notDetermined, status)
     }
 
-    func testCheckPermission() throws {
-        self.permissionsManager.setDelegate(self.delegate, permission: .location)
+    func testCheckPermission() async throws {
+        self.permissionsManager.setDelegate(
+            self.delegate,
+            permission: .location
+        )
         self.delegate.permissionStatus = .granted
 
-        let callbackCalled = self.expectation(description: "Callback called")
-        self.permissionsManager.checkPermissionStatus(.location) { status in
-            XCTAssertEqual(PermissionStatus.granted, status)
-            callbackCalled.fulfill()
-        }
+        let status = await self.permissionsManager.checkPermissionStatus(.location)
 
-        wait(for: [callbackCalled], timeout: 1)
+        XCTAssertEqual(AirshipPermissionStatus.granted, status)
         XCTAssertTrue(self.delegate.checkCalled)
         XCTAssertFalse(self.delegate.requestCalled)
     }
 
-    func testRequestPermissionNotConfigured() throws {
-        let callbackCalled = self.expectation(description: "Callback called")
-        self.permissionsManager.requestPermission(.displayNotifications) { status in
-            XCTAssertEqual(PermissionStatus.notDetermined, status)
-            callbackCalled.fulfill()
-        }
+    func testRequestPermissionNotConfigured() async throws {
+        let status = await self.permissionsManager.requestPermission(.displayNotifications)
 
-        wait(for: [callbackCalled], timeout: 1)
+        XCTAssertEqual(AirshipPermissionStatus.notDetermined, status)
     }
 
-    func testRequestPermission() throws {
-        self.permissionsManager.setDelegate(self.delegate, permission: .location)
+    func testRequestPermission() async throws {
+        self.permissionsManager.setDelegate(
+            self.delegate,
+            permission: .location
+        )
         self.delegate.permissionStatus = .denied
 
-        let callbackCalled = self.expectation(description: "Callback called")
-        self.permissionsManager.requestPermission(.location) { status in
-            XCTAssertEqual(PermissionStatus.denied, status)
-            callbackCalled.fulfill()
-        }
+        let status = await self.permissionsManager.requestPermission(.location)
 
-        wait(for: [callbackCalled], timeout: 1)
+        XCTAssertEqual(AirshipPermissionStatus.denied, status)
         XCTAssertTrue(self.delegate.requestCalled)
         XCTAssertFalse(self.delegate.checkCalled)
     }
@@ -64,69 +54,83 @@ class PermissionsManagerTests: XCTestCase {
     }
 
     func testConfiguredPermissions() throws {
-        self.permissionsManager.setDelegate(self.delegate, permission: .location)
-        self.permissionsManager.setDelegate(self.delegate, permission: .displayNotifications)
+        self.permissionsManager.setDelegate(
+            self.delegate,
+            permission: .location
+        )
+        self.permissionsManager.setDelegate(
+            self.delegate,
+            permission: .displayNotifications
+        )
 
-        let expected = Set<Permission>([.location, .displayNotifications])
+        let expected = Set<AirshipPermission>([.location, .displayNotifications])
         let configured = self.permissionsManager.configuredPermissions
         XCTAssertEqual(expected, configured)
     }
 
-    func testAirshipEnablers() throws {
-        self.permissionsManager.setDelegate(self.delegate, permission: .displayNotifications)
+    func testAirshipEnablers() async throws {
+        self.permissionsManager.setDelegate(
+            self.delegate,
+            permission: .displayNotifications
+        )
         self.delegate.permissionStatus = .granted
 
         let enablerCalled = self.expectation(description: "Enabler called")
-        self.permissionsManager.addAirshipEnabler(permission: .displayNotifications) {
+        self.permissionsManager.addAirshipEnabler(
+            permission: .displayNotifications
+        ) {
             enablerCalled.fulfill()
         }
 
-        self.permissionsManager.requestPermission(.displayNotifications, enableAirshipUsageOnGrant: true) { _ in }
-        wait(for: [enablerCalled], timeout: 1)
+        let _ = await self.permissionsManager.requestPermission(
+            .displayNotifications,
+            enableAirshipUsageOnGrant: true
+        )
+        await self.fulfillmentCompat(of: [enablerCalled], timeout: 1)
     }
 
-    func testRequestExtender() throws {
-        self.permissionsManager.setDelegate(self.delegate, permission: .location)
+    func testRequestExtender() async throws {
+        self.permissionsManager.setDelegate(
+            self.delegate,
+            permission: .location
+        )
         self.delegate.permissionStatus = .denied
 
         let listener1 = self.expectation(description: "Listener 1")
-        self.permissionsManager.addRequestExtender(permission: .location) { status, completion in
-            DispatchQueue.main.async {
-                listener1.fulfill()
-                completion()
-            }
+        self.permissionsManager.addRequestExtender(permission: .location) { status in
+            listener1.fulfill()
         }
 
         let listener2 = self.expectation(description: "Listener 2")
-        self.permissionsManager.addRequestExtender(permission: .location) { status, completion in
+        self.permissionsManager.addRequestExtender(permission: .location) { status in
             listener2.fulfill()
-            completion()
         }
 
-        let callbackCalled = self.expectation(description: "Callback called")
-        self.permissionsManager.requestPermission(.location) { status in
-            XCTAssertEqual(PermissionStatus.denied, status)
-            callbackCalled.fulfill()
-        }
+        let status = await self.permissionsManager.requestPermission(.location) 
 
-        wait(for: [listener1, listener2, callbackCalled], timeout: 1, enforceOrder: true)
+        XCTAssertEqual(AirshipPermissionStatus.denied, status)
+        await self.fulfillmentCompat(
+            of: [listener1, listener2],
+            timeout: 1,
+            enforceOrder: true
+        )
     }
 }
 
 @objc
-open class TestPermissionsDelegate: NSObject, PermissionDelegate {
+open class TestPermissionsDelegate: NSObject, AirshipPermissionDelegate {
 
-    @objc public var permissionStatus: PermissionStatus = .notDetermined
+    @objc public var permissionStatus: AirshipPermissionStatus = .notDetermined
     var checkCalled: Bool = false
     var requestCalled: Bool = false
 
-    public func checkPermissionStatus(completionHandler: @escaping (PermissionStatus) -> Void) {
+    public func checkPermissionStatus() async -> AirshipPermissionStatus {
         self.checkCalled = true
-        completionHandler(permissionStatus)
+        return permissionStatus
     }
 
-    public func requestPermission(completionHandler: @escaping (PermissionStatus) -> Void) {
+    public func requestPermission() async -> AirshipPermissionStatus {
         self.requestCalled = true
-        completionHandler(permissionStatus)
+       return permissionStatus
     }
 }

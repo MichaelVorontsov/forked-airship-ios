@@ -184,9 +184,7 @@ static double const MinimumSwipeVelocity = 100.0;
 
     self.showCompletionHandler = completionHandler;
 
-    if (@available(iOS 13.0, *)) {
-        [self observeSceneEvents];
-    }
+    [self observeSceneEvents];
 
     [self bannerView:self.bannerView animateInWithParentView:parentView completionHandler:^{
         [self scheduleDismissalTimer];
@@ -216,15 +214,14 @@ static double const MinimumSwipeVelocity = 100.0;
     self.bannerView.isBeingTapped = NO;
 
     if (self.displayContent.actions) {
-        [UAActionRunner runActionsWithActionValues:self.displayContent.actions
-                                         situation:UASituationManualInvocation
-                                          metadata:nil
-                                 completionHandler:^(UAActionResult *result) {
+        [UAActionRunner runActions:self.displayContent.actions
+                         situation:UAActionSituationManualInvocation
+                 completionHandler:^{
             UA_LTRACE(@"Message tap actions finished running.");
         }];
+        
+        [self dismissWithResolution:[UAInAppMessageResolution messageClickResolution]];
     }
-
-    [self dismissWithResolution:[UAInAppMessageResolution messageClickResolution]];
 }
 
 - (void)messageSwiped {

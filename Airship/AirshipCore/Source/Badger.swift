@@ -2,14 +2,16 @@
 
 import Foundation
 import UIKit
+
 #if os(watchOS)
 import WatchKit
 #endif
 
-protocol Badger {
-#if !os(watchOS)
+protocol Badger: AnyObject, Sendable {
+    #if !os(watchOS)
+    @MainActor
     var applicationIconBadgeNumber: Int { get set }
-#endif
+    #endif
 }
 
 #if !os(watchOS)

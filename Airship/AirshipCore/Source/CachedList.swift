@@ -2,30 +2,25 @@
 
 import Foundation
 
-/**
- * A class that manages a list of cached values, where each value has its own expiry.
- */
-class CachedList<Value> where Value : Any {
-    private let date: AirshipDate
-    private let maxCacheAge: TimeInterval
-    private let lock = Lock()
+/// A class that manages a list of cached values, where each value has its own expiry.
+final class CachedList<Value> where Value: Any {
+    private let date: AirshipDateProtocol
+    private let lock = AirshipLock()
     private var cachedValues: [(Value, Date)] = []
 
     var values: [Value] {
-        get {
-            var result: [Value]!
+        var result: [Value]!
 
-            lock.sync {
-                self.trim()
-                result = self.cachedValues.map { $0.0 }
-            }
-
-            return result
+        lock.sync {
+            self.trim()
+            result = self.cachedValues.map { $0.0 }
         }
+
+        return result
     }
 
-    func append(_ value: Value) {
-        let expiration = self.date.now.addingTimeInterval(maxCacheAge)
+    func append(_ value: Value, expiresIn: TimeInterval) {
+        let expiration = self.date.now.addingTimeInterval(expiresIn)
         lock.sync {
             self.cachedValues.append((value, expiration))
         }
@@ -37,8 +32,7 @@ class CachedList<Value> where Value : Any {
         })
     }
 
-    init(date: AirshipDate, maxCacheAge: TimeInterval) {
+    init(date: AirshipDateProtocol = AirshipDate.shared) {
         self.date = date
-        self.maxCacheAge = maxCacheAge
     }
 }

@@ -7,7 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 /**
  * Base class for main SDK components.
  */
-NS_SWIFT_NAME(Component)
+NS_SWIFT_NAME(AirshipComponent)
 @protocol UAComponent <NSObject>
 
 /**
@@ -17,14 +17,6 @@ NS_SWIFT_NAME(Component)
 @property (assign, getter=isComponentEnabled) BOOL componentEnabled;
 
 @optional
-
-/**
- * Called when remote config is loaded. If no config is available for the component, config will be nil.
- * @note For internal use only. :nodoc:
- *
- * @config The config or nil if no config is available for the module.
- */
-- (void)applyRemoteConfig:(nullable id)config;
 
 /**
  * Called when the shared UAirship instance is ready.

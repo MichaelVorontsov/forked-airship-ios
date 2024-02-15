@@ -1,12 +1,17 @@
 /* Copyright Airship and Contributors */
 
 import Foundation
+/**
+ * Airship JSON.
+ */
+public enum AirshipJSON: Codable, Equatable, Sendable, Hashable {
+    public static let defaultEncoder = JSONEncoder()
+    public static let defaultDecoder = JSONDecoder()
 
-/// - Note: for internal use only.  :nodoc:
-public enum AirshipJSON: Codable, Equatable {
+
     case string(String)
     case number(Double)
-    case object([String:AirshipJSON])
+    case object([String: AirshipJSON])
     case array([AirshipJSON])
     case bool(Bool)
     case null
@@ -16,13 +21,13 @@ public enum AirshipJSON: Codable, Equatable {
         switch self {
         case .array(let array): try container.encode(array)
         case .object(let object): try container.encode(object)
-        case .number(let number):  try container.encode(number)
+        case .number(let number): try container.encode(number)
         case .string(let string): try container.encode(string)
         case .bool(let bool): try container.encode(bool)
         case .null: try container.encodeNil()
         }
     }
-    
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
 
@@ -42,9 +47,9 @@ public enum AirshipJSON: Codable, Equatable {
             throw AirshipErrors.error("Invalid JSON")
         }
     }
-    
-    public func unWrap() -> Any? {
-        switch (self) {
+
+    public func unWrap() -> AnyHashable? {
+        switch self {
         case .string(let value):
             return value
         case .number(let value):
@@ -54,13 +59,13 @@ public enum AirshipJSON: Codable, Equatable {
         case .null:
             return nil
         case .object(let value):
-            var dict: [String: Any] = [:]
+            var dict: [String: AnyHashable] = [:]
             value.forEach {
                 dict[$0.key] = $0.value.unWrap()
             }
             return dict
         case .array(let value):
-            var array: [Any] = []
+            var array: [AnyHashable] = []
             value.forEach {
                 if let item = $0.unWrap() {
                     array.append(item)
@@ -68,30 +73,68 @@ public enum AirshipJSON: Codable, Equatable {
             }
             return array
         }
-       
     }
 
-    public static func wrap(_ value: Any?) throws -> AirshipJSON {
+    public static func from(
+        json: String?,
+        decoder: JSONDecoder = AirshipJSON.defaultDecoder
+    ) throws -> AirshipJSON {
+        guard let json = json else {
+            return .null
+        }
+        
+        guard let data = json.data(using: .utf8) else {
+            throw AirshipErrors.error("Invalid encoding: \(json)")
+        }
+        
+        return try decoder.decode(AirshipJSON.self, from: data)
+    }
+    
+    public static func from(
+        data: Data?,
+        decoder: JSONDecoder = AirshipJSON.defaultDecoder
+    ) throws -> AirshipJSON {
+        guard let data = data else {
+            return .null
+        }
+        
+        return try decoder.decode(AirshipJSON.self, from: data)
+    }
+
+    public static func wrap(_ value: Any?, encoder: JSONEncoder = AirshipJSON.defaultEncoder) throws -> AirshipJSON {
         guard let value = value else {
             return .null
+        }
+
+        if let json = value as? AirshipJSON {
+            return json
         }
 
         if let string = value as? String {
             return .string(string)
         }
 
+        if let url = value as? URL {
+            return .string(url.absoluteString)
+        }
+
+        if let date = value as? Date {
+            return .string(
+                AirshipUtils.isoDateFormatterUTCWithDelimiter().string(from: date)
+            )
+        }
+
         if let number = value as? NSNumber {
-            if (CFBooleanGetTypeID() == CFGetTypeID(number)) {
-                return .bool(number.boolValue)
-            } else {
+            guard CFBooleanGetTypeID() == CFGetTypeID(number) else {
                 return .number(number.doubleValue)
             }
+            return .bool(number.boolValue)
         }
 
         if let bool = value as? Bool {
             return .bool(bool)
         }
-        
+
         if let number = value as? Double {
             return .number(number)
         }
@@ -102,7 +145,7 @@ public enum AirshipJSON: Codable, Equatable {
 
         if let array = value as? [Any?] {
             let mapped: [AirshipJSON] = try array.map { child in
-                try wrap(child)
+                try wrap(child, encoder: encoder)
             }
 
             return .array(mapped)
@@ -110,12 +153,81 @@ public enum AirshipJSON: Codable, Equatable {
 
         if let object = value as? [String: Any?] {
             let mapped: [String: AirshipJSON] = try object.mapValues { child in
-                try wrap(child)
+                try wrap(child, encoder: encoder)
             }
 
             return .object(mapped)
         }
 
+        if let codable = value as? Encodable {
+            return try wrap(
+                JSONSerialization.jsonObject(with: try encoder.encode(codable), options: .fragmentsAllowed),
+                encoder: encoder
+            )
+        }
+
         throw AirshipErrors.error("Invalid JSON \(value)")
+    }
+    
+    public func toData(encoder: JSONEncoder = AirshipJSON.defaultEncoder) throws -> Data {
+        return try encoder.encode(self)
+    }
+    
+    public func toString(encoder: JSONEncoder = AirshipJSON.defaultEncoder) throws -> String {
+        return String(
+            decoding: try encoder.encode(self),
+            as: UTF8.self
+        )
+    }
+
+    public func decode<T: Decodable>(
+        decoder: JSONDecoder = AirshipJSON.defaultDecoder,
+        encoder: JSONEncoder = AirshipJSON.defaultEncoder
+    ) throws -> T {
+        let data = try toData(encoder: encoder)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    public var isNull: Bool {
+        if case .null = self {
+            return true
+        }
+        return false
+    }
+
+    public var isObject: Bool {
+        if case .object(_) = self {
+            return true
+        }
+        return false
+    }
+
+
+    public var isArray: Bool {
+        if case .array(_) = self {
+            return true
+        }
+        return false
+    }
+
+    public var isNumber: Bool {
+        if case .number(_) = self {
+            return true
+        }
+        return false
+    }
+
+    public var isString: Bool {
+        if case .string(_) = self {
+            return true
+        }
+        return false
+    }
+
+    public var isBool: Bool {
+        if case .bool(_) = self {
+            return true
+        }
+        return false
     }
 }

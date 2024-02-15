@@ -1,13 +1,7 @@
-import Foundation
 import AirshipCore
+import Foundation
 
-@objc(UATestAppStateTracker)
-public class TestAppStateTracker : AppStateTracker {
-
-    @objc
-    public var currentState : ApplicationState = .background
-
-    public override var state: ApplicationState {
-        return currentState
-    }
+public final class TestAppStateTracker: AppStateTrackerProtocol, @unchecked Sendable {
+    public var state: AirshipCore.ApplicationState { return currentState }
+    public var currentState: ApplicationState = .background
 }

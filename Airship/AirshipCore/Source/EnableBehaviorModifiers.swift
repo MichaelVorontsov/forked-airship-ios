@@ -1,10 +1,9 @@
 /* Copyright Airship and Contributors */
 
+import Combine
 import Foundation
 import SwiftUI
-import Combine
 
-@available(iOS 13.0.0, tvOS 13.0, *)
 internal struct FormSubmissionEnableBehavior: ViewModifier {
     let onApply: ((Bool, EnableBehavior) -> Void)?
 
@@ -22,7 +21,6 @@ internal struct FormSubmissionEnableBehavior: ViewModifier {
     }
 }
 
-@available(iOS 13.0.0, tvOS 13.0, *)
 internal struct ValidFormButtonEnableBehavior: ViewModifier {
     let onApply: ((Bool, EnableBehavior) -> Void)?
 
@@ -40,7 +38,7 @@ internal struct ValidFormButtonEnableBehavior: ViewModifier {
     }
 }
 
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 internal struct PagerNextButtonEnableBehavior: ViewModifier {
     let onApply: ((Bool, EnableBehavior) -> Void)?
 
@@ -53,17 +51,18 @@ internal struct PagerNextButtonEnableBehavior: ViewModifier {
                 onApply(pageIndex < (pagerState.pages.count - 1), .pagerNext)
             }
         } else {
-            content.disabled(pagerState.pageIndex >= (pagerState.pages.count - 1))
+            content.disabled(
+                pagerState.pageIndex >= (pagerState.pages.count - 1)
+            )
         }
     }
 }
 
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 struct PagerPreviousButtonEnableBehavior: ViewModifier {
     let onApply: ((Bool, EnableBehavior) -> Void)?
 
     @EnvironmentObject var pagerState: PagerState
-
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -77,7 +76,7 @@ struct PagerPreviousButtonEnableBehavior: ViewModifier {
     }
 }
 
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 internal struct AggregateEnableBehavior: ViewModifier {
     let behaviors: [EnableBehavior]
     let onApply: ((Bool) -> Void)
@@ -93,7 +92,7 @@ internal struct AggregateEnableBehavior: ViewModifier {
                 !value
             })
 
-            if (updated != enabled) {
+            if updated != enabled {
                 enabled = updated
                 onApply(updated)
             }
@@ -102,7 +101,6 @@ internal struct AggregateEnableBehavior: ViewModifier {
 }
 
 
-@available(iOS 13.0.0, tvOS 13.0, *)
 extension View {
     @ViewBuilder
     fileprivate func addBehaviorModifiers(
@@ -133,8 +131,10 @@ extension View {
     }
 
     @ViewBuilder
-    func enableBehaviors(_ behaviors: [EnableBehavior]?,
-                         onApply: ((Bool) -> Void)? = nil) -> some View {
+    func enableBehaviors(
+        _ behaviors: [EnableBehavior]?,
+        onApply: ((Bool) -> Void)? = nil
+    ) -> some View {
 
         if let behaviors = behaviors {
             if let onApply = onApply {
@@ -152,4 +152,3 @@ extension View {
         }
     }
 }
-

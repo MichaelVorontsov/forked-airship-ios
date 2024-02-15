@@ -20,10 +20,35 @@ NS_ASSUME_NONNULL_BEGIN
 
 
 /**
+ * Audience JSON
+ */
+@property (nullable, nonatomic, copy) NSDictionary *audienceJSON;
+
+
+/**
  * The frequency constraint IDs.
  */
 @property (nullable, nonatomic, copy) NSArray<NSString *> *frequencyConstraintIDs;
 
+/**
+ * The schedule's message type.
+ */
+@property(nonatomic, copy, nullable) NSString *messageType;
+
+/**
+ * Indicates if schedule could be in holdout group
+ */
+@property(nonatomic, strong, nullable) NSNumber *bypassHoldoutGroups;
+
+/**
+ * New user evaluation date
+ */
+@property(nonatomic, nullable) NSDate *isNewUserEvaluationDate;
+
+/**
+ * Product id for metered usage
+ */
+@property(nonatomic, nullable) NSString *productId;
 
 @end
 
@@ -40,6 +65,22 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly, nullable) NSNumber *type;
 
 /**
+ * The schedule's message type.
+ */
+@property(nonatomic, readonly, nullable) NSString *messageType;
+
+/**
+ * Indicates if schedule could be in holdout group
+ */
+@property(nonatomic, readonly, nullable) NSNumber *bypassHoldoutGroups;
+
+/**
+ * New user evaluation date
+ */
+@property(nonatomic, readonly, nullable) NSDate *isNewUserEvaluationDate;
+
+
+/**
  * Campaigns info.
  */
 @property(nonatomic, readonly, nullable) NSDictionary *campaigns;
@@ -49,11 +90,21 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property(nonatomic, readonly, nullable) NSDictionary *reportingContext;
 
+/**
+ * Audience JSON
+ */
+@property(nonatomic, readonly, nullable) NSDictionary *audienceJSON;
+
 
 /**
  * Frequency constraint IDs.
  */
 @property(nonatomic, readonly, nullable) NSArray<NSString *> *frequencyConstraintIDs;
+
+/**
+ * Product id for metered usage
+ */
+@property(nonatomic, nullable, readonly) NSString *productId;
 
 
 /**

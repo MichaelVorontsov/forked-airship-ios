@@ -3,13 +3,206 @@
 
 [Migration Guides](https://github.com/urbanairship/ios-library/tree/main/Documentation/Migration)
 
-## Version 16.12.2, June 28, 2023
-Patch release that fixes an issue with modular header on podspec for `AirshipServiceExtension` and `AirshipContentExtension`
-and a channel registration issue where if the channel's metadata changes during an update task, a new task would not be queued to sync with Airship until the next foreground.
+## Version 17.7.3, Jan 29, 2024
+Patch release that fixes an issue with message limits not being respected in certain cases.
 
 ### Changes
-- Enable modular header for `AirshipServiceExtension` and `AirshipContentExtension`.
+- Fixed message limits not being respected in certain cases.
+
+## Version 17.7.2 January 24, 2023
+Patch release improving SDK stability and a fix for core-data warnings with Xcode 15.
+
+### Changes
+- Override hashing for MessageCenterMessage
+- Fixed core-data warnings
+- Fixed potential crash due to de-duping conflicts events in AirshipContact
+
+## Version 17.7.1 December 18, 2023
+Patch release that fixes an issue with app background events being attributed to the wrong session ID. This issue was introduced in 17.5.0 and impacts
+session duration times in Performance Analytics. Applications that rely on that report should update.
+
+### Changes
+- Fixed background app event session ID
+
+## Version 17.7.0 December 6, 2023
+Minor release that adds a new MessageCenter listener for current message state and a new method `Airship.contact.notifyRemoteLogin()` that will refresh the local state on the device for named user associations that occur through the server instead of the SDK.
+
+### Changes
+- Added new method `Airship.contact.notifyRemoteLogin()`
+- Added `MessageCenterController.statePublisher` to listen for the state of the Message Center
+- Fixed Preference Center title
+- Fixed direct open tracking regression introduced in 17.6.1
+- Fixed direct open tracking when opening a content-available=1 notification from a cold start
+- Fixed a possible issue with an IAX session trigger if at start a system prompt is displayed
+
+## Version 17.6.1 November 20, 2023
+Patch release that adds debug symbols to the prebuilt xcframeworks and includes fixes for SPM and Message Center.
+
+### Changes
+- Fixed SPM packages not building due to a duplicate symbol
+- Fixed Message Center list view showing a small image icon if a list icon is available and the theme does not enable list icons
+- Added debug symbols to xcframeworks to make stack traces easier to read
+
+## Version 17.6.0 November 9, 2023
+Minor release that adds support for server side feature flag segmentation, Impression billing, and improves support for animated webP images in Scenes.
+
+### Changes
+- Added server side segmentation for feature flags
+- Added support for Animated webP frame duration
+- Added support for Impression billing
+- Scene images will preload the first frame of each image in a scene to avoid the image animating in on page view
+- Fixed swipe voice commands for Scenes
+
+
+## Version 17.5.1 October 18, 2023
+Patch release that fixes an issue with Live Activity registration reporting the wrong value on app restart and fixes a regression introduced in 17.5.0 with image loading in both the Preference Center and Message Center OOTB UI.
+
+### Changes
+- Fixed Message Center list icon loading
+- Fixed Preference Center alert icon loading
+- Fixed Live Activity registration status reporting `registered` before it actually is able to register. This only occurs if the Live Activity was tracked and failed to generate a token before the app is restarted.
+
+
+## Version 17.5.0 October 12, 2023
+Minor release that adds support for querying the Airship registration status of a Live Activity, improves gif loading in Scenes & Surveys, and improves text input handling in Surveys. Applications that use Live Activities or several large GIFs in Scenes & Surveys should update.
+
+### Changes
+- Optimized GIF loading for Scenes & Surveys.
+- Improve text input on iOS 16+ for Surveys.
+- Fixed carthage build due to a missing dependency on AirshipDebug.
+- Added an additional attempt to upload a Live Activity registration upload on background if it previously failed.
+- Added new `liveActivityRegistrationStatusUpdates(name:)` and `liveActivityRegistrationStatusUpdates(activity:)` on `AirshipChannel` to make it possible to query the current registration status of a Live Activity with Airship.
+- Extended the background task used for waiting for a Live Activity token from 10 seconds to 30 seconds.
+
+## Version 17.4.0 September 28, 2023
+Minor release that improves refreshing the feeds for in-app experiences and feature flags, adds a new interaction event for feature flags, and fixes a reporting issue with direct opens and sessions counts for apps that are scene enabled.
+
+### Changes
+- Improve refresh handling of remote-data for IAX and feature flags.
+- Added new method `trackInteraction(flag:)` for Feature Flags.
+- Added new optional parameter `dismissAction` on the `MessageCenterListView` view
+- Fixed app session and direct open reporting for scene enabled applications
+
+## Version 17.3.1 September 13, 2023
+Patch release that updates the prebuilt XCFrameworks for Xcode 15 to use the new Xcode 15 RC release. 
+
+### Changes
+- Update the Xcode 15 prebuilt XCFrameworks to use Xcode 15 RC release.
+
+## Version 17.3.0 September 7, 2023
+Minor release that adds a privacy manifest that declares the default data collected by the Airship SDK. For more information, see [privacy manifest guide](https://docs.airship.com/platform/mobile/data-collection/ios-privacy-manifest/).
+
+### Changes
+- Added privacy manifest
+
+## Version 17.2.2 September 1, 2023
+Patch release that fixes an issue with the signing of the frameworks.
+
+### Changes
+- Fixed the certificate and included feature flags in signed frameworks.
+
+## Version 17.2.1 August 29, 2023
+Patch release that fixes an issue with not being able to update a Live Activity after it becomes stale. Apps that use `staleDate` with Live Activities should update.
+
+### Changes
+- Continue to track a Live Activity after it becomes stale
+
+## Version 17.2.0 August 25, 2023
+Minor release that fixes a reporting issue with hold out groups and In-App Messaging. 17.2.0 will be the minimum version required for global hold out groups.
+
+### Changes
+- Fixed reporting issue with hold out groups and In-App Messaging
+- Added a new `NativeBridgeActionRunner` that can be passed into a `NativeBridge` instance to customize action running
+- Added frameworks signing
+- Fixed a remote-data crash during init
+- Fixed Message Center sometimes not loading a message when opened from a push notification
+
+## Version 17.1.3 August 16, 2023
+Patch release that fixes a reporting issue related to global holdout groups. Applications making use of global holdout groups should update.
+
+### Changes
+- Fixed experiment info reporting for global holdout groups
+
+## Version 17.1.2 August 11, 2023
+Patch release that fixes an issue with Xcode 15 due to a WKNavigationDelegate protocol conformance issue with the AirshipNativeBridge. Applications that are facing Airship build errors with Xcode 15 should update.
+
+### Changes
+- Fixed WKNavigationDelegate protocol issue
+
+## Version 17.1.1 August 4, 2023
+Patch release that fixes a possible delay with channel creation if the enabled flags on privacy manager changes before the channel is able to be created.
+
+### Changes
+- Fixed channel registration issue with privacy manager
+- Fixed missing AirshipFeatureFlags xcframework in the Airship.zip
+
+## Version 17.1.0 July 31, 2023
+Minor release that adds support for global holdout groups in In-App experiences and support for feature flags.
+
+### Changes
+- Added new feature flag module `AirshipFeatureFlags`
+- Added support for global holdout groups
+- Fixed crash with deep links from an HTML based message
+- Fixed a VoiceOver IAA issue where the content behind the IAA was being read
+
+## Version 17.0.3 July 10, 2023
+Patch release that fixes an issue with URL allow lists defaulting to allowing all URLs if calling takeOff with a config instance.
+
+### Changes
+- Fixed URL allow list issue
+- Added workaround for Xcode 15 beta compile issue
+
+
+## Version 17.0.2 July 2, 2023
+Patch release that fixes an issue with modular header on podspec for AirshipServiceExtension and AirshipContentExtension, an issue deep linking to a deleted Message Center message, and fixes a regression with the share action. Applications that are using 17.0.1 or older should update.
+
+### Changes
+- Enable modular header for AirshipServiceExtension and AirshipContentExtension
+- Fixed issue with a navigation loop to a deleted Message Center message
+- Removed unused `applyIf` extension to avoid potential conflicts
+- Fixed share action regression
+
+
+## Version 16.12.2 June 28, 2023
+Patch release that fixes an issue with modular header on podspec for AirshipServiceExtension and AirshipContentExtension and a channel registration issue where if the channel's metadata changes during an update task, a new task would not be queued to sync with Airship until the next foreground.
+
+### Changes
+- Enable modular header for AirshipServiceExtension and AirshipContentExtension
 - Fixed channel registration task queuing
+
+## Version 17.0.1 June 16, 2023
+Patch release that addresses potential ambiguous use errors and improves Message Center module documentation.
+Apps upgrading to SDK 17.0.0 should update to 17.0.1 instead.
+
+### Changes
+- Fixed potential `ambiguous use of overlay()` errors when using SwiftUI
+- Improved Message Center module documentation
+
+## Version 17.0.0 June 15, 2023
+Major SDK release that adds support for Stories, In-App experiences downstream of a sequence in Journeys, and improves SDK auth.
+
+This release brings several breaking changes throughout the codebase as we continue the transition from Objective-C to Swift, and as we start adopting structured concurrency.
+
+The Airship SDK now requires iOS 14+ as the minimum deployment version and Xcode 14.3+
+
+### Changes
+- Added support for Stories, a new format for Scenes
+- Added support for In-App experiences downstream of a sequence in Journeys
+- Updated minimum deployment version to iOS 14
+- Message Center module has been rewritten in Swift
+- The provided Message Center UI has been rewritten in Swift & SwiftUI
+- The provided Preference Center UI has been rewritten in SwiftUI
+- Accengage, Chat, and Location modules have been removed
+- ExtendedActions module has been removed and actions have been merged into other modules
+- A majority of the completionHandler APIs have been replaced with `async` functions
+- Renamed several classes throughout the SDK to prevent API collisions for simple classes, e.g. Config -> AirshipConfig, Channel -> AirshipChannel, etc.
+- Fixed several `sendable` warnings throughout codebase
+- Video improvements for Scenes
+- Added a new PushNotificationStatus publisher that provides the current status of push notifications
+- Actions rewritten to be sendable and are now only available from Swift
+- Improved SDK auth
+- Default In-App Automation display interval has been changed from 30 seconds to 0 seconds
+- The SDK Allow list has been updated to allow opening all URLs by default if neither `urlAllowList` or `urlAllowListScopeOpen` have been set in the config. Media URLs for In-App experiences are no longer checked on the allow list. Youtube URLs have been removed from the default `urlAllowListScopeOpen`.
 
 ## Version 16.12.1, June 14, 2023
 Patch release that fixes app deep links that use the `uairship://` prefix. Any `uairship://` deep links that are not handled by Airship directly will now be delivered to the `DeepLinkDelegate`.

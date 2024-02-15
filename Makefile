@@ -1,8 +1,8 @@
 
-XCODE ?= 13.4.1
+XCODE ?= 15.0.1
 
-export TEST_DESTINATION ?= platform=iOS Simulator,OS=latest,name=iPhone 11
-export TEST_DESTINATION_TVOS ?= platform=tvOS Simulator,OS=latest,name=Apple TV
+export TEST_DESTINATION ?= platform=iOS Simulator,OS=17.0.1,name=iPhone 15 Pro Max
+export TEST_DESTINATION_TVOS ?= platform=tvOS Simulator,OS=17.0.1,name=Apple TV
 
 export DEVELOPER_DIR = $(shell bash ./scripts/get_xcode_path.sh ${XCODE} $(XCODE_PATH))
 export AIRSHIP_VERSION = $(shell bash "./scripts/airship_version.sh")
@@ -14,6 +14,7 @@ archive_path = ${build_path}/archive
 xcframeworks_path = ${build_path}/xcframeworks
 docs_path = ${build_path}/Documentation
 package_zip_path = ${build_path}/Airship.zip
+package_carthage_zip_path = ${build_path}/Airship.xcframeworks.zip
 
 .PHONY: setup
 setup:
@@ -36,6 +37,7 @@ build-package: clean-package build-docs build-xcframeworks
 	 CHANGELOG.md \
 	 README.md \
 	 LICENSE
+	bash ./scripts/package_carthage.sh "${package_carthage_zip_path}" "${xcframeworks_path}/" 
 
 .PHONY: build-docs
 build-docs: setup clean-docs
@@ -46,34 +48,42 @@ build-xcframeworks: setup clean-xcframeworks
 	bash ./scripts/build_xcframeworks.sh "${xcframeworks_path}" "${derived_data_path}" "${archive_path}"
 
 .PHONY: build-samples
-build-samples: build-sample-tvos build-sample-objc build-sample-swift
+build-samples: build-sample-tvos build-sample-ios
 
 .PHONY: build-sample-tvos
 build-sample-tvos: setup
 	bash ./scripts/build_sample.sh "tvOSSample" "${derived_data_path}"
 
-.PHONY: build-sample-objc
-build-sample-objc: setup
-	bash ./scripts/build_sample.sh "Sample" "${derived_data_path}"
-
-.PHONY: build-sample-swift
-build-sample-swift: setup
-	bash ./scripts/build_sample.sh "SwiftSample" "${derived_data_path}"
+.PHONY: build-sample-ios
+build-sample-ios: setup
+	bash ./scripts/build_sample.sh "Airship Sample" "${derived_data_path}"
+	
+.PHONY: build-sample-watchos
+build-sample-watchos: setup
+	bash ./scripts/build_sample_watchos.sh "watchOSSample_WatchKit_Extension" "${derived_data_path}"
 
 .PHONY: test
-test: setup test-core test-accengage test-chat test-content-extension test-service-extension test-packages
+test: setup test-core test-preference-center test-message-center test-automation test-feature-flags test-content-extension test-service-extension
 
 .PHONY: test-core
 test-core: setup
 	bash ./scripts/run_tests.sh AirshipCore "${derived_data_path}"
 
-.PHONY: test-chat
-test-chat: setup
-	bash ./scripts/run_tests.sh AirshipChat "${derived_data_path}"
+.PHONY: test-message-center
+test-message-center: setup
+	bash ./scripts/run_tests.sh AirshipMessageCenter "${derived_data_path}"
 
-.PHONY: test-accengage
-test-accengage: setup
-	bash ./scripts/run_tests.sh AirshipAccengage "${derived_data_path}"
+.PHONY: test-preference-center
+test-preference-center: setup
+	bash ./scripts/run_tests.sh AirshipPreferenceCenter "${derived_data_path}"
+
+.PHONY: test-automation
+test-automation: setup
+	bash ./scripts/run_tests.sh AirshipAutomationSwift "${derived_data_path}"
+
+.PHONY: test-feature-flags
+test-feature-flags: setup
+	bash ./scripts/run_tests.sh AirshipFeatureFlags "${derived_data_path}"
 
 .PHONY: test-content-extension
 test-content-extension: setup
@@ -86,21 +96,32 @@ test-service-extension: setup
 .PHONY: test-packages
 test-packages: setup
 	bash ./scripts/test_package.sh spm
-	bash ./scripts/test_package.sh spm11.4
 
 .PHONY: pod-publish
 pod-publish: setup
 	bundle exec pod trunk push Airship.podspec
-	bundle exec pod trunk push AirshipExtensions.podspec
 	bundle exec pod trunk push AirshipServiceExtension.podspec
 	bundle exec pod trunk push AirshipContentExtension.podspec
 
 .PHONY: pod-lint
-pod-lint: setup
-	bundle exec pod lib lint Airship.podspec --verbose --platforms=tvos,ios --fail-fast --skip-tests 
-	bundle exec pod lib lint AirshipExtensions.podspec --verbose --platforms=ios --fail-fast --skip-tests 
-	bundle exec pod lib lint AirshipServiceExtension.podspec --verbose --platforms=ios --fail-fast --skip-tests 
-	bundle exec pod lib lint AirshipContentExtension.podspec --verbose --platforms=ios --fail-fast --skip-tests 
+pod-lint: pod-lint-tvos pod-lint-ios pod-lint-extensions
+
+.PHONY: pod-lint-tvos
+pod-lint-tvos: setup
+	bundle exec pod lib lint Airship.podspec --verbose --platforms=tvos --fail-fast --skip-tests --no-subspecs
+
+.PHONY: pod-lint-watchos
+pod-lint-watchos: setup
+	bundle exec pod lib lint Airship.podspec --verbose --platforms=watchos --subspec=Core --fail-fast --skip-tests --no-clean
+
+.PHONY: pod-lint-ios
+pod-lint-ios: setup
+	bundle exec pod lib lint Airship.podspec --verbose --platforms=ios  --fail-fast --skip-tests --no-subspecs
+
+.PHONY: pod-lint-extensions
+pod-lint-extensions: setup
+	bundle exec pod lib lint AirshipServiceExtension.podspec --verbose --platforms=ios  --fail-fast --skip-tests 
+	bundle exec pod lib lint AirshipContentExtension.podspec --verbose --platforms=ios  --fail-fast --skip-tests 
 
 .PHONY: clean
 clean:
@@ -113,7 +134,8 @@ clean-docs:
 .PHONY: clean-package
 clean-package:
 	rm -rf "${package_zip_path}"
+	rm -rf "${package_carthage_zip_path}"
 
 .PHONY: clean-xcframeworks
 clean-xcframeworks:
-	rm -rf "${xcframeworks_output}"
+	# rm -rf "${xcframeworks_path}"

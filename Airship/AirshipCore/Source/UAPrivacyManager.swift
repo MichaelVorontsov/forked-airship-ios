@@ -1,32 +1,32 @@
 /* Copyright Airship and Contributors */
 
-import Foundation;
+import Foundation
 
-/**
- * The privacy manager allow enabling/disabling features in the SDK.
- * The SDK will not make any network requests or collect data if all features our disabled, with
- * a few exceptions when going from enabled -> disabled. To have the SDK opt-out of all features on startup,
- * set the default enabled features in the Config to an empty option set, or in the
- * airshipconfig.plist file with `enabledFeatures = none`.
- * If any feature is enabled, the SDK will collect and send the following data:
- * - Channel ID
- * - Locale
- * - TimeZone
- * - Platform
- * - Opt in state (push and notifications)
- * - SDK version
- * - Accengage Device ID (Accengage module for migration)
- */
+/// The privacy manager allow enabling/disabling features in the SDK.
+/// The SDK will not make any network requests or collect data if all features our disabled, with
+/// a few exceptions when going from enabled -> disabled. To have the SDK opt-out of all features on startup,
+/// set the default enabled features in the Config to an empty option set, or in the
+/// airshipconfig.plist file with `enabledFeatures = none`.
+/// If any feature is enabled, the SDK will collect and send the following data:
+/// - Channel ID
+/// - Locale
+/// - TimeZone
+/// - Platform
+/// - Opt in state (push and notifications)
+/// - SDK version
+/// - Accengage Device ID (Accengage module for migration)
 @objc(UAPrivacyManager)
-public class PrivacyManager : NSObject {
+public final class AirshipPrivacyManager: NSObject, Sendable {
 
     /**
     * NSNotification event when enabled feature list is updated.
      */
     @objc
-    public static let changeEvent = Notification.Name("com.urbanairship.privacymanager.enabledfeatures_changed")
+    public static let changeEvent = Notification.Name(
+        "com.urbanairship.privacymanager.enabledfeatures_changed"
+    )
 
-    private let UAPrivacyManagerEnabledFeaturesKey = "com.urbanairship.privacymanager.enabledfeatures"
+    private static let enabledFeaturesKey = "com.urbanairship.privacymanager.enabledfeatures"
     private let LegacyIAAEnableFlag = "UAInAppMessageManagerEnabled"
     private let LegacyChatEnableFlag = "AirshipChat.enabled"
     private let LegacyLocationEnableFlag = "UALocationUpdatesEnabled"
@@ -35,50 +35,68 @@ public class PrivacyManager : NSObject {
     private let LegacyDataCollectionEnableEnableFlag = "com.urbanairship.data_collection_enabled"
 
     private let dataStore: PreferenceDataStore
-    private let notificationCenter: NotificationCenter
 
-    private var _enabledFeatures: Features
+    private let notificationCenter: AirshipNotificationCenter
+
+    private let currentEnabledFeatures: Atomic<AirshipFeature> = Atomic([])
 
     /// The current set of enabled features.
-    @objc
-    public var enabledFeatures: Features {
+    public var enabledFeatures: AirshipFeature {
         get {
-            _enabledFeatures
-        } set {
-            if (_enabledFeatures != newValue) {
-                _enabledFeatures = newValue
-                dataStore.setObject(NSNumber(value: enabledFeatures.rawValue), forKey: UAPrivacyManagerEnabledFeaturesKey)
-                UADispatcher.main.dispatchAsyncIfNecessary({ [self] in
-                    notificationCenter.post(name: PrivacyManager.changeEvent, object: nil)
-                })
+            return currentEnabledFeatures.value
+        }
+        set {
+            let changed = currentEnabledFeatures.setValue(newValue) {
+                self.dataStore.setObject(
+                    NSNumber(value: newValue.rawValue),
+                    forKey: AirshipPrivacyManager.enabledFeaturesKey
+                )
             }
+
+            if (changed) {
+                self.notificationCenter.postOnMain(name: AirshipPrivacyManager.changeEvent)
+            }
+        }
+    }
+
+    /// :nodoc:
+    @objc(enabledFeatures)
+    public var _objc_enabledFeatures: _UAFeatures {
+        get {
+            return enabledFeatures.toObjc
+        }
+        set {
+            enabledFeatures = newValue.toSwift
         }
     }
 
     /*
      * - Note: For internal use only. :nodoc:
      */
-    @objc
-    public convenience init(dataStore: PreferenceDataStore, defaultEnabledFeatures: Features) {
-        self.init(
-            dataStore: dataStore,
-            defaultEnabledFeatures: defaultEnabledFeatures,
-            notificationCenter: NotificationCenter.default)
+    @objc(privacyManagerWithDataStore:defaultEnabledFeatures:)
+    public static func _objc_factory(
+        dataStore: PreferenceDataStore,
+        defaultEnabledFeatures: _UAFeatures) -> AirshipPrivacyManager {
+        return AirshipPrivacyManager(dataStore: dataStore, defaultEnabledFeatures: defaultEnabledFeatures.toSwift)
     }
 
     /*
      * - Note: For internal use only. :nodoc:
      */
-    @objc
-    public init(dataStore: PreferenceDataStore, defaultEnabledFeatures: Features, notificationCenter: NotificationCenter) {
+    public init(
+        dataStore: PreferenceDataStore,
+        defaultEnabledFeatures: AirshipFeature,
+        notificationCenter: AirshipNotificationCenter = AirshipNotificationCenter.shared
+    ) {
 
         self.dataStore = dataStore
         self.notificationCenter = notificationCenter
 
-        if self.dataStore.keyExists(UAPrivacyManagerEnabledFeaturesKey) {
-            self._enabledFeatures = Features(rawValue: UInt(self.dataStore.integer(forKey: UAPrivacyManagerEnabledFeaturesKey)))
+        if self.dataStore.keyExists(AirshipPrivacyManager.enabledFeaturesKey),
+           let value = self.dataStore.unsignedInteger(forKey: AirshipPrivacyManager.enabledFeaturesKey) {
+            self.currentEnabledFeatures.value = AirshipFeature(rawValue:(value & AirshipFeature.all.rawValue))
         } else {
-            self._enabledFeatures = defaultEnabledFeatures
+            self.currentEnabledFeatures.value = defaultEnabledFeatures
         }
 
         super.init()
@@ -88,35 +106,49 @@ public class PrivacyManager : NSObject {
     /// Enables features.
     /// This will append any features to the `enabledFeatures` property.
     /// - Parameter features: The features to enable.
-    @objc
-    public func enableFeatures(_ features: Features) {
-        enabledFeatures.insert(features)
+    public func enableFeatures(_ features: AirshipFeature) {
+        self.enabledFeatures.insert(features)
+    }
+
+    /// :nodoc:
+    @objc(enableFeatures:)
+    public func _objc_enableFeatures(_ features: _UAFeatures) {
+        enableFeatures(features.toSwift)
     }
 
     /// Disables features.
     /// This will remove any features to the `enabledFeatures` property.
     /// - Parameter features: The features to disable.
-    @objc
-    public func disableFeatures(_ features: Features) {
-        enabledFeatures.remove(features)
+    public func disableFeatures(_ features: AirshipFeature) {
+        self.enabledFeatures.remove(features)
     }
 
-   /**
+    /// :nodoc:
+    @objc(disableFeatures:)
+    public func _objc_disableFeatures(_ features: _UAFeatures) {
+        disableFeatures(features.toSwift)
+    }
+
+    /**
     * Checks if a given feature is enabled.
     *
     * - Parameter feature: The features to check.
     * - Returns: True if the provided features are enabled, otherwise false.
     */
-    @objc
-    public func isEnabled(_ feature: Features) -> Bool {
-        if feature == .none {
-            return enabledFeatures == .none
-        } else {
+    public func isEnabled(_ feature: AirshipFeature) -> Bool {
+        guard feature == [] else {
             return (enabledFeatures.rawValue & feature.rawValue) == feature.rawValue
         }
+        return enabledFeatures == []
     }
 
-   /**
+    /// :nodoc:
+    @objc(isEnabled:)
+    public func _objc_isEnabled(_ features: _UAFeatures) -> Bool {
+        return isEnabled(features.toSwift)
+    }
+
+    /**
     * Checks if any feature is enabled.
     *
     * - Returns: True if any feature is enabled, otherwise false.
@@ -127,7 +159,7 @@ public class PrivacyManager : NSObject {
     }
 
     func migrateData() {
-        var features = _enabledFeatures
+        var features = currentEnabledFeatures.value
         if dataStore.keyExists(LegacyDataCollectionEnableEnableFlag) {
             if dataStore.bool(forKey: LegacyDataCollectionEnableEnableFlag) {
                 features = .all
@@ -138,10 +170,13 @@ public class PrivacyManager : NSObject {
         }
 
         if dataStore.keyExists(LegacyPushTokenRegistrationEnableFlag) {
-            if !(dataStore.bool(forKey: LegacyPushTokenRegistrationEnableFlag)) {
+            if !(dataStore.bool(forKey: LegacyPushTokenRegistrationEnableFlag))
+            {
                 features.remove(.push)
             }
-            dataStore.removeObject(forKey: LegacyPushTokenRegistrationEnableFlag)
+            dataStore.removeObject(
+                forKey: LegacyPushTokenRegistrationEnableFlag
+            )
         }
 
         if dataStore.keyExists(LegacyAnalyticsEnableFlag) {
@@ -159,19 +194,82 @@ public class PrivacyManager : NSObject {
         }
 
         if dataStore.keyExists(LegacyChatEnableFlag) {
-            if !(dataStore.bool(forKey: LegacyChatEnableFlag)) {
-                features.remove(.chat)
-            }
             dataStore.removeObject(forKey: LegacyChatEnableFlag)
         }
 
         if dataStore.keyExists(LegacyLocationEnableFlag) {
-            if !(dataStore.bool(forKey: LegacyLocationEnableFlag)) {
-                disableFeatures(.location)
-            }
             dataStore.removeObject(forKey: LegacyLocationEnableFlag)
         }
 
-        _enabledFeatures = features
+        currentEnabledFeatures.value = features
+    }
+}
+
+/**
+ * Airship features.
+ */
+public struct AirshipFeature: OptionSet, Sendable {
+    
+    public let rawValue: UInt
+
+    // Enables In-App Automation.
+    // In addition to the default data collection, In-App Automation will collect:
+    // - App Version (App update triggers)
+    public static let inAppAutomation = AirshipFeature(rawValue: _UAFeatures.inAppAutomation.rawValue)
+
+    // Enables Message Center.
+    // In addition to the default data collection, Message Center will collect:
+    // - Message Center User
+    // - Message Reads & Deletes
+    public static let messageCenter = AirshipFeature(rawValue: _UAFeatures.messageCenter.rawValue)
+
+    // Enables push.
+    // In addition to the default data collection, push will collect:
+    // - Push tokens
+    public static let push = AirshipFeature(rawValue: _UAFeatures.push.rawValue)
+
+    // Enables analytics.
+    // In addition to the default data collection, analytics will collect:
+    // -  Events
+    // - Associated Identifiers
+    // - Registered Notification Types
+    // - Time in app
+    // - App Version
+    // - Device model
+    // - Device manufacturer
+    // - OS version
+    // - Carrier
+    // - Connection type
+    // - Framework usage
+    public static let analytics = AirshipFeature(rawValue: _UAFeatures.analytics.rawValue)
+
+    // Enables tags and attributes.
+    // In addition to the default data collection, tags and attributes will collect:
+    // - Channel and Contact Tags
+    // - Channel and Contact Attributes
+    public static let tagsAndAttributes = AirshipFeature(rawValue: _UAFeatures.tagsAndAttributes.rawValue)
+
+    // Enables contacts.
+    // In addition to the default data collection, contacts will collect:
+    // External ids (named user)
+    public static let contacts = AirshipFeature(rawValue: _UAFeatures.contacts.rawValue)
+
+    public static let all: AirshipFeature = [inAppAutomation, messageCenter, push, analytics, tagsAndAttributes, contacts]
+
+    public init(rawValue: UInt) {
+        self.rawValue = rawValue
+    }
+}
+
+
+extension AirshipFeature {
+    var toObjc: _UAFeatures {
+        return _UAFeatures(rawValue: self.rawValue)
+    }
+}
+
+extension _UAFeatures {
+    var toSwift: AirshipFeature {
+        return AirshipFeature(rawValue: self.rawValue)
     }
 }

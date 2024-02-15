@@ -2,157 +2,227 @@
 
 import Foundation
 
-protocol AirshipInstanceProtocol  {
+protocol AirshipInstanceProtocol {
     var config: RuntimeConfig { get }
+    var preferenceDataStore: PreferenceDataStore { get }
     var actionRegistry: ActionRegistry { get }
     var applicationMetrics: ApplicationMetrics { get }
-    var locationProvider: UALocationProvider? { get }
-    var permissionsManager: PermissionsManager { get }
+    var permissionsManager: AirshipPermissionsManager { get }
 
     #if !os(tvOS) && !os(watchOS)
     var javaScriptCommandDelegate: JavaScriptCommandDelegate? { get set }
     var channelCapture: ChannelCapture { get }
     #endif
-    
+
     var deepLinkDelegate: DeepLinkDelegate? { get set }
-    var urlAllowList : URLAllowList { get }
-    var localeManager: LocaleManager { get }
-    var privacyManager: PrivacyManager { get }
-    var components: [Component] { get }
-    
-    func component(forClassName className: String) -> Component?
+    var urlAllowList: URLAllowList { get }
+    var localeManager: AirshipLocaleManager { get }
+    var privacyManager: AirshipPrivacyManager { get }
+    var components: [AirshipComponent] { get }
+
+    func component(forClassName className: String) -> AirshipComponent?
     func component<E>(ofType componentType: E.Type) -> E?
+
+    func airshipReady()
 }
 
-class AirshipInstance : AirshipInstanceProtocol {
+class AirshipInstance: AirshipInstanceProtocol {
     public let config: RuntimeConfig
+    public let preferenceDataStore: PreferenceDataStore
+
     public let actionRegistry: ActionRegistry
     public let applicationMetrics: ApplicationMetrics
-    public let locationProvider: UALocationProvider?
-    public let permissionsManager: PermissionsManager
+    public let permissionsManager: AirshipPermissionsManager
 
     #if !os(tvOS) && !os(watchOS)
-    
+
     public weak var javaScriptCommandDelegate: JavaScriptCommandDelegate?
     public let channelCapture: ChannelCapture
     #endif
-    
+
     public weak var deepLinkDelegate: DeepLinkDelegate?
-    public let urlAllowList : URLAllowList
-    public let localeManager: LocaleManager
-    public let privacyManager: PrivacyManager
-    public let components: [Component]
-    private let remoteConfigManager: RemoteConfigManager;
-    private var componentMap: [String : Component]  = [:]
-    private var lock = Lock()
+    public let urlAllowList: URLAllowList
+    public let localeManager: AirshipLocaleManager
+    public let privacyManager: AirshipPrivacyManager
+    public let components: [AirshipComponent]
+    private let remoteConfigManager: RemoteConfigManager
+    private let experimentManager: ExperimentDataProvider
+    private var componentMap: [String: AirshipComponent] = [:]
+    private var lock = AirshipLock()
 
-    init(config: Config) {
+    @MainActor
+    init(config: AirshipConfig) {
+        let requestSession = DefaultAirshipRequestSession(
+            appKey: config.appKey,
+            appSecret: config.appSecret
+        )
         let dataStore = PreferenceDataStore(appKey: config.appKey)
-        self.permissionsManager = PermissionsManager()
-        self.config = RuntimeConfig(config: config, dataStore: dataStore)
-        self.privacyManager = PrivacyManager(dataStore: dataStore, defaultEnabledFeatures: config.enabledFeatures)
-        self.actionRegistry = ActionRegistry.defaultRegistry()
+        self.preferenceDataStore = dataStore
+        self.permissionsManager = AirshipPermissionsManager()
+        self.config = RuntimeConfig(config: config, dataStore: dataStore, requestSession: requestSession)
+        self.privacyManager = AirshipPrivacyManager(
+            dataStore: dataStore,
+            defaultEnabledFeatures: config.enabledFeatures
+        )
+        self.actionRegistry = ActionRegistry()
         self.urlAllowList = URLAllowList.allowListWithConfig(self.config)
-        self.applicationMetrics = ApplicationMetrics(dataStore: dataStore, privacyManager: privacyManager)
-        self.localeManager = LocaleManager(dataStore: dataStore)
-        
-#if !os(watchOS)
-        let sharedApp = UIApplication.shared
-#else
-        let sharedApp = WKExtension.shared()
-#endif
-        
-        let channel = Channel(dataStore: dataStore,
-                              config: self.config,
-                              privacyManager: self.privacyManager,
-                              localeManager: self.localeManager)
-        
-        let analytics = Analytics(config: self.config,
-                                  dataStore: dataStore,
-                                  channel: channel,
-                                  localeManager: localeManager,
-                                  privacyManager: privacyManager,
-                                  permissionsManager: permissionsManager)
+        self.applicationMetrics = ApplicationMetrics(
+            dataStore: dataStore,
+            privacyManager: privacyManager
+        )
+        self.localeManager = AirshipLocaleManager(dataStore: dataStore)
 
-        let push = Push(config: self.config,
-                        dataStore: dataStore,
-                        channel: channel,
-                        analytics: analytics,
-                        privacyManager: self.privacyManager,
-                        permissionsManager: self.permissionsManager,
-                        apnsRegistrar:sharedApp,
-                        badger:sharedApp)
-        
-        let contact = Contact(dataStore: dataStore,
-                                config: self.config,
-                                channel: channel,
-                                privacyManager: self.privacyManager)
-        
-        let namedUser = NamedUser(dataStore: dataStore, contact: contact)
-        
-        let remoteDataManager = RemoteDataManager(config: self.config,
-                                                    dataStore: dataStore,
-                                                    localeManager: self.localeManager,
-                                                    privacyManager: self.privacyManager)
-        
-        self.remoteConfigManager = RemoteConfigManager(remoteDataManager: remoteDataManager,
-                                                        privacyManager: self.privacyManager)
-        
-        
-        #if !os(tvOS) && !os(watchOS)
-        self.channelCapture = ChannelCapture(config: self.config,
-                                             dataStore: dataStore,
-                                             channel: channel)
+        #if !os(watchOS)
+        let sharedApp = UIApplication.shared
+        #else
+        let sharedApp = WKExtension.shared()
         #endif
+
+        let audienceOverridesProvider = DefaultAudienceOverridesProvider()
+
+
+        let channel = AirshipChannel(
+            dataStore: dataStore,
+            config: self.config,
+            privacyManager: self.privacyManager,
+            localeManager: self.localeManager,
+            audienceOverridesProvider: audienceOverridesProvider
+        )
+
+        requestSession.channelAuthTokenProvider = ChannelAuthTokenProvider(
+            channel: channel,
+            runtimeConfig: self.config
+        )
+
+
+        let analytics = AirshipAnalytics(
+            config: self.config,
+            dataStore: dataStore,
+            channel: channel,
+            localeManager: localeManager,
+            privacyManager: privacyManager,
+            permissionsManager: permissionsManager
+        )
+
+        let push = AirshipPush(
+            config: self.config,
+            dataStore: dataStore,
+            channel: channel,
+            analytics: analytics,
+            privacyManager: self.privacyManager,
+            permissionsManager: self.permissionsManager,
+            apnsRegistrar: sharedApp,
+            badger: sharedApp
+        )
+
+        let contact = AirshipContact(
+            dataStore: dataStore,
+            config: self.config,
+            channel: channel,
+            privacyManager: self.privacyManager,
+            audienceOverridesProvider: audienceOverridesProvider,
+            localeManager: self.localeManager
+        )
+        requestSession.contactAuthTokenProvider = contact.authTokenProvider
+
+        let remoteData = RemoteData(
+            config: self.config,
+            dataStore: dataStore,
+            localeManager: self.localeManager,
+            privacyManager: self.privacyManager,
+            contact: contact
+        )
         
-        let moduleLoader = ModuleLoader(config: self.config,
-                                        dataStore: dataStore,
-                                        channel: channel,
-                                        contact: contact,
-                                        push: push,
-                                        remoteData: remoteDataManager,
-                                        analytics: analytics,
-                                        privacyManager: self.privacyManager,
-                                        permissionsManager: self.permissionsManager)
+        self.experimentManager = ExperimentManager(
+            dataStore: dataStore,
+            remoteData: remoteData
+        )
+
+        let meteredUsage = AirshipMeteredUsage(
+            config: self.config,
+            dataStore: dataStore,
+            channel: channel,
+            privacyManager: privacyManager)
+
+        #if !os(tvOS) && !os(watchOS)
+        self.channelCapture = ChannelCapture(
+            config: self.config,
+            channel: channel
+        )
+        #endif
+
+        let deferredResolver = AirshipDeferredResolver(
+            config: self.config,
+            audienceOverrides: audienceOverridesProvider
+        )
         
-        var components: [Component] = [contact, channel, analytics, namedUser, remoteDataManager, push]
+        let moduleLoader = ModuleLoader(
+            config: self.config,
+            dataStore: dataStore,
+            channel: channel,
+            contact: contact,
+            push: push,
+            remoteData: remoteData,
+            analytics: analytics,
+            privacyManager: self.privacyManager,
+            permissionsManager: self.permissionsManager,
+            audienceOverrides: audienceOverridesProvider,
+            experimentsManager: experimentManager,
+            meteredUsage: meteredUsage,
+            deferredResolver: deferredResolver,
+            cache: CoreDataAirshipCache(appKey: self.config.appKey)
+        )
+
+        var components: [AirshipComponent] = [
+            contact, channel, analytics, remoteData, push,
+        ]
         components.append(contentsOf: moduleLoader.components)
-        
-        self.locationProvider = components.compactMap {
-            return $0 as? UALocationProvider
-        }.first
-            
+
         self.components = components
-            
-        moduleLoader.actionPlists.forEach {
-            self.actionRegistry.registerActions($0)
-        }
+
+        self.remoteConfigManager = RemoteConfigManager(
+            config: self.config,
+            remoteData: remoteData,
+            privacyManager: self.privacyManager
+        )
+
+        self.actionRegistry.registerActions(
+            actionsManifests: moduleLoader.actionManifests + [DefaultActionsManifest()]
+        )
     }
-    
-    
-    public func component(forClassName className: String) -> Component? {
-        var component: Component?
+
+    public func component(forClassName className: String) -> AirshipComponent? {
+        var component: AirshipComponent?
         lock.sync {
             let key = "Class:\(className)"
             if componentMap[key] == nil {
-                self.componentMap[key] = self.components.first { NSStringFromClass(type(of: $0)) == className }
+                self.componentMap[key] = self.components.first {
+                    NSStringFromClass(type(of: $0)) == className
+                }
             }
-          
+
             component = componentMap[key]
         }
         return component
     }
-    
+
     public func component<E>(ofType componentType: E.Type) -> E? {
         var component: E?
         lock.sync {
             let key = "Type:\(componentType)"
             if componentMap[key] == nil {
-                self.componentMap[key] = self.components.first { ($0 as? E) != nil }
+                self.componentMap[key] = self.components.first {
+                    ($0 as? E) != nil
+                }
             }
 
-            component =  componentMap[key] as? E
+            component = componentMap[key] as? E
         }
         return component
+    }
+
+    func airshipReady() {
+        self.components.forEach { $0.airshipReady?() }
+        self.remoteConfigManager.airshipReady()
     }
 }

@@ -1,72 +1,53 @@
 /* Copyright Airship and Contributors */
 
-/**
- * Enables an Airship feature.
- *
- * This action is registered under the names enable_feature and ^ef.
- *
- * Expected argument values:
- * - "user_notifications": To enable user notifications.
- * - "location": To enable location updates.
- * - "background_location": To enable location and allow background updates.
- *
- * Valid situations:  UASituationLaunchedFromPush,
- * UASituationWebViewInvocation, UASituationManualInvocation,
- * UASituationForegroundInteractiveButton, and UASituationAutomation
- *
- * Default predicate: Rejects foreground pushes with visible display options.
- *
- * Result value: Empty.
- */
-@objc(UAEnableFeatureAction)
-public class EnableFeatureAction : NSObject, Action {
+/// Enables an Airship feature.
+///
+/// Expected argument values:
+/// - "user_notifications": To enable user notifications.
+/// - "location": To enable location updates.
+/// - "background_location": To enable location and allow background updates.
+///
+/// Valid situations:  `ActionSituation.launchedFromPush`,
+/// `ActionSituation.webViewInvocation`, `ActionSituation.manualInvocation`,
+/// `ActionSituation.foregroundInteractiveButton`, and `ActionSituation.automation`
+public final class EnableFeatureAction: AirshipAction {
+    /// Default names - "enable_feature", "^ef"
+    public static let defaultNames = ["enable_feature", "^ef"]
+    
+    /// Default predicate - rejects foreground pushes with visible display options
+    public static let defaultPredicate: @Sendable (ActionArguments) -> Bool = { args in
+        return args.metadata[ActionArguments.isForegroundPresentationMetadataKey] as? Bool != true
+    }
 
     /// Metadata key for a block that takes the permission results`(PermissionStatus, PermissionStatus) -> Void`.
     /// - Note: For internal use only. :nodoc:
-    @objc
-    public static let resultCompletionHandlerMetadata = PromptPermissionAction.resultReceiverMetadataKey
+    public static let resultReceiverMetadataKey = PromptPermissionAction
+        .resultReceiverMetadataKey
 
-    @objc
-    public static let name = "enable_feature"
-    
-    @objc
-    public static let shortName = "^ef"
-
-    @objc
     public static let userNotificationsActionValue = "user_notifications"
-    
-    @objc
     public static let locationActionValue = "location"
-    
-    @objc
     public static let backgroundLocationActionValue = "background_location"
 
-    private let permissionPrompter: () -> PermissionPrompter
-    private let location: () -> UALocationProvider?
+    private let permissionPrompter: @Sendable () -> PermissionPrompter
 
-    required init(permissionPrompter: @escaping () -> PermissionPrompter,
-                  location: @escaping () -> UALocationProvider?) {
+
+    public convenience init() {
+           self.init {
+               return AirshipPermissionPrompter(
+                   permissionsManager: Airship.shared.permissionsManager
+               )
+           }
+       }
+    
+    required init(permissionPrompter: @escaping @Sendable () -> PermissionPrompter) {
         self.permissionPrompter = permissionPrompter
-        self.location = location
-    }
-
-    public convenience override init() {
-        self.init(
-            permissionPrompter: {
-                return AirshipPermissionPrompter(permissionsManager: Airship.shared.permissionsManager)
-            },
-            location: { return Airship.shared.locationProvider }
-        )
     }
     
-    public func acceptsArguments(_ arguments: ActionArguments) -> Bool {
-        switch (arguments.situation) {
-        case .automation: fallthrough
-        case .manualInvocation: fallthrough
-        case .launchedFromPush: fallthrough
-        case .webViewInvocation: fallthrough
-        case .foregroundPush: fallthrough
-        case .foregroundInteractiveButton:
+    public func accepts(arguments: ActionArguments) async -> Bool {
+        switch arguments.situation {
+        case .automation, .manualInvocation, .launchedFromPush,
+            .webViewInvocation,
+            .foregroundPush, .foregroundInteractiveButton:
             return (try? self.parsePermission(arguments: arguments)) != nil
         case .backgroundPush: fallthrough
         case .backgroundInteractiveButton: fallthrough
@@ -75,37 +56,32 @@ public class EnableFeatureAction : NSObject, Action {
         }
     }
 
-    public func perform(with arguments: ActionArguments, completionHandler: @escaping UAActionCompletionHandler) {
+    @MainActor
+    public func perform(arguments: ActionArguments) async throws -> AirshipJSON? {
+        let permission = try parsePermission(arguments: arguments)
 
-        var permission: Permission!
-        do {
-            permission = try parsePermission(arguments: arguments)
-        } catch {
-            completionHandler(ActionResult(error: error))
-            return
-        }
+        let (start, end) = await self.permissionPrompter()
+            .prompt(
+                permission: permission,
+                enableAirshipUsage: true,
+                fallbackSystemSettings: true
+            )
 
-        if (EnableFeatureAction.backgroundLocationActionValue == (arguments.value as? String)) {
-            location()?.isBackgroundLocationUpdatesAllowed = true
-        }
+        let resultReceiver = arguments.metadata[
+            EnableFeatureAction.resultReceiverMetadataKey
+        ] as? PermissionResultReceiver
 
-        self.permissionPrompter().prompt(permission: permission,
-                                         enableAirshipUsage: true,
-                                         fallbackSystemSettings: true) { start, end in
+        resultReceiver?(permission, start, end)
 
-            if let metadata = arguments.metadata {
-               let resultReceiver = metadata[PromptPermissionAction.resultReceiverMetadataKey] as? PermissionResultReceiver
-
-                resultReceiver?(permission, start, end)
-            }
-        }
-
-        completionHandler(ActionResult.empty())
+        return nil
     }
 
-    private func parsePermission(arguments: ActionArguments) throws -> Permission {
-        let value = arguments.value as? String ?? ""
-        switch (value) {
+    private func parsePermission(
+        arguments: ActionArguments
+    ) throws -> AirshipPermission {
+        let unwrapped = arguments.value.unWrap()
+        let value = unwrapped as? String ?? ""
+        switch value {
         case EnableFeatureAction.userNotificationsActionValue:
             return .displayNotifications
         case EnableFeatureAction.locationActionValue:

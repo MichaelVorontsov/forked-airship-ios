@@ -57,7 +57,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 @property (nonnull, strong) UADispatcher *dispatcher;
 @property (nonnull, strong) UIApplication *application;
 @property (nonnull, strong) NSNotificationCenter *notificationCenter;
-@property (nonnull, nonatomic, strong) UADate *date;
+@property (nonnull, nonatomic, strong) UAirshipDate *date;
 
 @property (nonatomic, copy) NSString *currentScreen;
 @property (nonatomic, copy, nullable) NSString * currentRegion;
@@ -88,7 +88,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
                      notificationCenter:(NSNotificationCenter *)notificationCenter
                              dispatcher:(UADispatcher *)dispatcher
                             application:(UIApplication *)application
-                                   date:(UADate *)date {
+                                   date:(UAirshipDate *)date {
     self = [super init];
 
     if (self) {
@@ -105,18 +105,18 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
         self.isAppSessionPending = NO;
 
         UA_WEAKIFY(self)
-        [self.taskManager registerForTaskWithIDs:@[UAAutomationEngineDelayTaskID, UAAutomationEngineIntervalTaskID]
-                                      dispatcher:UADispatcher.serialUtility
+        [self.taskManager registerForTaskWithID:UAAutomationEngineDelayTaskID
+                                           type:UAirshipWorkerTypeConcurrent
                                    launchHandler:^(id<UATask> task) {
             UA_STRONGIFY(self)
-            if ([task.taskID isEqualToString:UAAutomationEngineDelayTaskID]) {
-                [self handleDelayTask:task];
-            } else if ([task.taskID isEqualToString:UAAutomationEngineIntervalTaskID]) {
-                [self handleIntervalTask:task];
-            } else {
-                UA_LERR(@"Invalid task: %@", task.taskID);
-                [task taskCompleted];
-            }
+            [self handleDelayTask:task];
+        }];
+
+        [self.taskManager registerForTaskWithID:UAAutomationEngineIntervalTaskID
+                                           type:UAirshipWorkerTypeConcurrent
+                                  launchHandler:^(id<UATask> task) {
+            UA_STRONGIFY(self)
+            [self handleIntervalTask:task];
         }];
 
         if (@available(ios 12.0, tvOS 12.0, *)) {
@@ -141,7 +141,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
                                  notificationCenter:(NSNotificationCenter *)notificationCenter
                                          dispatcher:(UADispatcher *)dispatcher
                                         application:(UIApplication *)application
-                                               date:(UADate *)date {
+                                               date:(UAirshipDate *)date {
 
     return [[UAAutomationEngine alloc] initWithAutomationStore:automationStore
                                                appStateTracker:appStateTracker
@@ -161,7 +161,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
                                             notificationCenter:[NSNotificationCenter defaultCenter]
                                                     dispatcher:UADispatcher.main
                                                    application:[UIApplication sharedApplication]
-                                                          date:[[UADate alloc] init]];
+                                                          date:[[UAirshipDate alloc] init]];
 }
 
 #pragma mark -
@@ -186,6 +186,11 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
                                 selector:@selector(regionEventAdded:)
                                     name:UAAnalytics.regionEventAdded
                                   object:nil];
+    
+    [self.notificationCenter addObserver:self
+                                selector:@selector(featureFlagInterracted:)
+                                    name:UAAnalytics.featureFlagInterracted
+                                  object:nil];
 
     [self.notificationCenter addObserver:self
                                 selector:@selector(applicationDidTransitionToBackground)
@@ -196,6 +201,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
                                 selector:@selector(applicationDidTransitionToForeground)
                                     name:UAAppStateTracker.didTransitionToForeground
                                   object:nil];
+    
 
     [self finishExecutionSchedules];
     [self cleanSchedules];
@@ -210,7 +216,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
     [self.automationStore getSchedulesWithStates:@[@(UAScheduleStatePreparingSchedule)]
                                completionHandler:^(NSArray<UAScheduleData *> *schedules) {
         UA_STRONGIFY(self)
-        [self prepareSchedules:[self sortedScheduleDataByPriority:schedules]];
+        [self prepareSchedules:schedules];
     }];
 
     self.isStarted = YES;
@@ -534,7 +540,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 }
 
 - (BOOL)isForegrounded {
-    return self.appStateTracker.state == UAApplicationStateActive;
+    return self.appStateTracker.isForgrounded;
 }
 
 - (void)cleanSchedules {
@@ -626,6 +632,11 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
     [self scheduleConditionsChanged];
 }
 
+-(void)featureFlagInterracted:(NSNotification *)notification {
+    id<UAEvent> event = notification.userInfo[UAAnalytics.eventKey];
+    [self updateTriggersWithType:UAScheduleTriggerFeatureFlagInterracted argument:event.data incrementAmount:1.0];
+}
+
 -(void)screenTracked:(NSNotification *)notification {
     NSString *screenName = notification.userInfo[UAAnalytics.screenKey];
 
@@ -640,14 +651,18 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 #pragma mark -
 #pragma mark Event processing
 
-- (NSArray<UAScheduleData *> *)sortedScheduleDataByPriority:(NSArray<UAScheduleData *> *)scheduleData {
-    NSSortDescriptor *ascending = [[NSSortDescriptor alloc] initWithKey:@"priority" ascending:YES];
-    return [scheduleData sortedArrayUsingDescriptors:@[ascending]];
+// Sort pending schedules, first by triggeredTime and then by priority.
+- (NSArray<UAScheduleData *> *)sortedScheduleData:(NSArray<UAScheduleData *> *)scheduleData {
+    NSSortDescriptor *triggeredTimeDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"triggeredTime" ascending:YES];
+    NSSortDescriptor *priorityDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"priority" ascending:YES];
+    return [scheduleData sortedArrayUsingDescriptors:@[triggeredTimeDescriptor, priorityDescriptor]];
 }
 
-- (NSArray<UASchedule *> *)sortedSchedulesByPriority:(NSArray<UASchedule *> *)schedules {
-    NSSortDescriptor *ascending = [[NSSortDescriptor alloc] initWithKey:@"priority" ascending:YES];
-    return [schedules sortedArrayUsingDescriptors:@[ascending]];
+// Sort pending schedules, first by triggeredTime and then by priority.
+- (NSArray<UASchedule *> *)sortedSchedules:(NSArray<UASchedule *> *)schedules {
+    NSSortDescriptor *triggeredTimeDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"triggeredTime" ascending:YES];
+    NSSortDescriptor *priorityDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"priority" ascending:YES];
+    return [schedules sortedArrayUsingDescriptors:@[triggeredTimeDescriptor, priorityDescriptor]];
 }
 
 - (void)updateTriggersWithScheduleID:(NSString *)scheduleID
@@ -725,7 +740,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 - (void)enqueueDelayTaskForSchedule:(UAScheduleData *)scheduleData timeInterval:(NSTimeInterval)timeInterval {
     id extras = @{UAAutomationEngineTaskExtrasIdentifier : scheduleData.identifier};
 
-    UATaskRequestOptions *requestOptions = [[UATaskRequestOptions alloc] initWithConflictPolicy:UATaskConflictPolicyAppend
+    UATaskRequestOptions *requestOptions = [[UATaskRequestOptions alloc] initWithConflictPolicy:UAirshipWorkRequestConflictPolicyAppend
                                                                                 requiresNetwork:NO
                                                                                          extras:extras];
 
@@ -738,7 +753,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 - (void)enqueueIntervalTaskForSchedule:(UAScheduleData *)scheduleData timeInterval:(NSTimeInterval)timeInterval {
     id extras = @{UAAutomationEngineTaskExtrasIdentifier : scheduleData.identifier};
 
-    UATaskRequestOptions *requestOptions = [[UATaskRequestOptions alloc] initWithConflictPolicy:UATaskConflictPolicyAppend
+    UATaskRequestOptions *requestOptions = [[UATaskRequestOptions alloc] initWithConflictPolicy:UAirshipWorkRequestConflictPolicyAppend
                                                                                 requiresNetwork:NO
                                                                                          extras:extras];
 
@@ -901,7 +916,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
  */
 - (void)createStateConditions {
     UAAutomationStateCondition *activeSessionCondition = [[UAAutomationStateCondition alloc] initWithPredicate:^BOOL {
-        return self.appStateTracker.state == UAApplicationStateActive;
+        return self.isForegrounded;
     } argumentGenerator:nil stateChangeDate:self.date.now];
 
     UAAutomationStateCondition *versionCondition = [[UAAutomationStateCondition alloc] initWithPredicate:^BOOL {
@@ -928,7 +943,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 }
 
 /**
- * Sorts provided schedules in ascending prioirty order and checks whether any compound triggers
+ * Sorts provided schedules, first by triggeredTime and then by priority in ascending order and checks whether any compound triggers
  * assigned to those schedules have currently valid state conditions, updating them if necessary.
  *
  * @param schedules The schedules.
@@ -938,15 +953,15 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 }
 
 /**
- * Sorts provided schedules in ascending prioirty order and checks whether any compound triggers
+ * Sorts provided schedules, first by triggeredTime and then by priority in ascending order and checks whether any compound triggers
  * assigned to those schedules have currently valid state conditions, updating them if necessary.
  *
  * @param schedules The schedules.
  * @param date Filters out state triggers based on the state change date.
  */
 - (void)checkCompoundTriggerState:(NSArray<UASchedule *> *)schedules forStateNewerThanDate:(NSDate *)date {
-    // Sort schedules by priority in ascending order
-    schedules = [self sortedSchedulesByPriority:schedules];
+    // Sort pending schedules, first by triggeredTime and then by priority.
+    schedules = [self sortedSchedules:schedules];
 
     for (UASchedule *schedule in schedules) {
         NSMutableArray *checkedTriggerTypes = [NSMutableArray array];
@@ -980,7 +995,7 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
     [self.automationStore getSchedulesWithStates:@[@(UAScheduleStateWaitingScheduleConditions)]
                                completionHandler:^(NSArray<UAScheduleData *> *schedulesData) {
         UA_STRONGIFY(self);
-        schedulesData = [self sortedScheduleDataByPriority:schedulesData];
+        schedulesData = [self sortedScheduleData:schedulesData];
         for (UAScheduleData *scheduleData in schedulesData) {
             [self attemptExecution:scheduleData];
         }
@@ -1071,8 +1086,8 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
         return;
     }
 
-    // Sort schedules by priority in ascending order
-    schedules = [self sortedScheduleDataByPriority:schedules];
+    // Sort schedules, first by triggeredTime and then by priority, in ascending order
+    schedules = [self sortedScheduleData:schedules];
 
     for (UAScheduleData *scheduleData in schedules) {
         NSString *scheduleID = scheduleData.identifier;
@@ -1168,59 +1183,78 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
     }
 
     // Execution state must be read and written on the context's private queue
-    __block UAScheduleState nextExecutionState = UAScheduleStateWaitingScheduleConditions;
+    __block UAAutomationScheduleReadyResult readyResult = UAAutomationScheduleReadyResultNotReady;
 
-    // Conditions and action executions must be run on the main queue.
+
     UA_WEAKIFY(self)
-    [self.dispatcher doSync:^{
+
+    // Precheck
+    UASemaphore *semaphore = [[UASemaphore alloc] init];
+    [self.dispatcher dispatchAsync:^{
         UA_STRONGIFY(self)
 
         if (self.paused) {
+            [semaphore signal];
             return;
         }
 
-        if (![self isScheduleConditionsSatisfied:schedule.delay]) {
-            UA_LDEBUG(@"Schedule %@ is not ready to execute. Conditions not satisfied", schedule.identifier);
-            return;
-        }
+        [self.delegate isScheduleReadyPrecheck:schedule completionHandler:^(UAAutomationScheduleReadyResult result) {
+            readyResult = result;
+            [semaphore signal];
+        }];
+    }];
 
-        id<UAAutomationEngineDelegate> delegate = self.delegate;
+    [semaphore wait];
 
-        switch ([delegate isScheduleReadyToExecute:schedule]) {
-            case UAAutomationScheduleReadyResultInvalidate: {
-                UA_LTRACE(@"Attempted to execute an invalid schedule %@", schedule.identifier);
-                nextExecutionState = UAScheduleStatePreparingSchedule;
-                [self prepareScheduleWithIdentifier:schedule.identifier];
-                break;
+    // Conditions and action executions must be run on the main queue.
+    if (readyResult == UAAutomationScheduleReadyResultContinue) {
+        readyResult = UAAutomationScheduleReadyResultNotReady;
+        [self.dispatcher doSync:^{
+            UA_STRONGIFY(self)
+
+
+            if (![self isScheduleConditionsSatisfied:schedule.delay]) {
+                UA_LDEBUG(@"Schedule %@ is not ready to execute. Conditions not satisfied", schedule.identifier);
+                return;
             }
-            case UAAutomationScheduleReadyResultContinue: {
-                UA_LTRACE(@"Executing schedule %@", schedule.identifier);
-                [delegate executeSchedule:schedule completionHandler:^{
+
+            readyResult = [self.delegate isScheduleReadyToExecute:schedule];
+
+            if (readyResult == UAAutomationScheduleReadyResultContinue) {
+                [scheduleData setTriggeredTime:self.date.now];
+                [self.delegate executeSchedule:schedule completionHandler:^{
                     UA_STRONGIFY(self)
                     [self.automationStore getSchedule:schedule.identifier completionHandler:^(UAScheduleData *scheduleData) {
                         UA_STRONGIFY(self)
                         [self scheduleFinishedExecuting:scheduleData];
                     }];
                 }];
+            }
+        }];
+    }
 
-                nextExecutionState = UAScheduleStateExecuting;
-                break;
-            }
-            case UAAutomationScheduleReadyResultNotReady: {
-                UA_LTRACE(@"Schedule %@ not ready for execution", schedule.identifier);
-                break;
-            }
-            case UAAutomationScheduleReadyResultSkip: {
-                UA_LTRACE(@"Schedule %@ not ready for execution, resetting to idle", schedule.identifier);
-                nextExecutionState = UAScheduleStateIdle;
-                break;
-            }
+    switch (readyResult) {
+        case UAAutomationScheduleReadyResultInvalidate: {
+            UA_LTRACE(@"Attempted to execute an invalid schedule %@", schedule.identifier);
+            [scheduleData updateState:UAScheduleStatePreparingSchedule];
+            [self prepareScheduleWithIdentifier:schedule.identifier];
+            break;
         }
-    }];
 
-    // Update execution state if necessary
-    if (nextExecutionState != UAScheduleStateWaitingScheduleConditions) {
-        [scheduleData updateState:nextExecutionState];
+        case UAAutomationScheduleReadyResultContinue: {
+            UA_LTRACE(@"Schedule executing schedule %@", schedule.identifier);
+            [scheduleData updateState:UAScheduleStateExecuting];
+            break;
+        }
+        case UAAutomationScheduleReadyResultNotReady: {
+            UA_LTRACE(@"Schedule %@ not ready for execution", schedule.identifier);
+            break;
+        }
+        case UAAutomationScheduleReadyResultSkip: {
+            UA_LTRACE(@"Schedule %@ not ready for execution, resetting to idle", schedule.identifier);
+            [scheduleData updateState:UAScheduleStateIdle];
+            break;
+        }
     }
 }
 
@@ -1340,18 +1374,6 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
         return nil;
     }
 
-    UAScheduleAudience *audience;
-    if (scheduleData.audience) {
-        NSError *audienceError;
-        id audienceJSON = [UAJSONUtils objectWithString:scheduleData.audience];
-        audience = [UAScheduleAudience audienceWithJSON:audienceJSON error:&audienceError];
-        if (!audience || audienceError) {
-            UA_LERR(@"Invalid schedule. Deleting %@ - %@", scheduleData.identifier, audienceError);
-            [scheduleData.managedObjectContext deleteObject:scheduleData];
-            return nil;
-        }
-    }
-
     UASchedule *schedule = [UAAutomationEngine scheduleWithType:[scheduleData.type unsignedIntegerValue]
                                                        dataJSON:dataJSON
                                                    builderBlock:^(UAScheduleBuilder * _Nonnull builder) {
@@ -1366,10 +1388,17 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
         builder.editGracePeriod = [scheduleData.editGracePeriod doubleValue];
         builder.metadata = [UAJSONUtils objectWithString:scheduleData.metadata];
         builder.identifier = scheduleData.identifier;
-        builder.audience = audience;
+        if (scheduleData.audience) {
+            builder.audienceJSON = [UAJSONUtils objectWithString:scheduleData.audience];
+        }
         builder.campaigns= scheduleData.campaigns;
         builder.reportingContext = scheduleData.reportingContext;
         builder.frequencyConstraintIDs = scheduleData.frequencyConstraintIDs;
+        builder.triggeredTime = scheduleData.triggeredTime;
+        builder.messageType = scheduleData.messageType;
+        builder.bypassHoldoutGroups = scheduleData.bypassHoldoutGroups.boolValue;
+        builder.isNewUserEvaluationDate = scheduleData.isNewUserEvaluationDate;
+        builder.productId = scheduleData.productId;
     }];
 
     if (![schedule isValid]) {
@@ -1507,8 +1536,8 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
         scheduleData.metadata = [UAJSONUtils stringWithObject:edits.metadata];
     }
 
-    if (edits.audience) {
-        scheduleData.audience = [UAJSONUtils stringWithObject:[edits.audience toJSON]];
+    if (edits.audienceJSON) {
+        scheduleData.audience = [UAJSONUtils stringWithObject:edits.audienceJSON];
     }
 
     if (edits.campaigns) {
@@ -1521,6 +1550,26 @@ static NSString * const UAAutomationEngineTaskExtrasIdentifier = @"identifier";
 
     if (edits.frequencyConstraintIDs) {
         scheduleData.frequencyConstraintIDs = edits.frequencyConstraintIDs;
+    }
+    
+    if (edits.triggeredTime) {
+        scheduleData.triggeredTime = edits.triggeredTime;
+    }
+
+    if (edits.messageType) {
+        scheduleData.messageType = edits.messageType;
+    }
+
+    if (edits.bypassHoldoutGroups) {
+        scheduleData.bypassHoldoutGroups = edits.bypassHoldoutGroups;
+    }
+
+    if (edits.isNewUserEvaluationDate) {
+        scheduleData.isNewUserEvaluationDate = edits.isNewUserEvaluationDate;
+    }
+    
+    if (edits.productId) {
+        scheduleData.productId = edits.productId;
     }
 }
 

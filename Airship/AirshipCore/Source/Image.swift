@@ -2,9 +2,7 @@
 
 import ImageIO
 
-/**
- * @note For internal use only. :nodoc:
- */
+/// @note For internal use only. :nodoc:
 extension UIImage {
     /**
      * Image factory method that supports animated data.
@@ -16,33 +14,32 @@ extension UIImage {
     @objc(fancyImageWithData:fillIn:)
     public class func fancyImage(with data: Data?, fillIn: Bool) -> UIImage? {
         guard let data = data,
-              let imageData = try? AirshipImageData(data: data)
+            let imageData = try? AirshipImageData(data: data)
         else {
             return nil
         }
 
-        if imageData.frames.count > 1 {
-            var totalDuration: TimeInterval = 0.0
-            var images: [UIImage] = []
+        guard imageData.isAnimated else {
+            return imageData.loadFrames()[0].image
+        }
+        var totalDuration: TimeInterval = 0.0
+        var images: [UIImage] = []
 
-            imageData.frames.forEach { frame in
-                if (frame.duration > 0.0) {
-                    totalDuration += frame.duration
-                }
+        imageData.loadFrames().forEach { frame in
+            if frame.duration > 0.0 {
+                totalDuration += frame.duration
+            }
 
-                if (fillIn) {
-                    let centiseconds = Int(frame.duration * 100)
-                    for _ in 0..<centiseconds {
-                        images.append(frame.image)
-                    }
-                } else {
+            if fillIn {
+                let centiseconds = Int(frame.duration * 100)
+                for _ in 0..<centiseconds {
                     images.append(frame.image)
                 }
+            } else {
+                images.append(frame.image)
             }
-            return UIImage.animatedImage(with: images, duration: totalDuration)
-        } else {
-            return imageData.frames[0].image
         }
+        return UIImage.animatedImage(with: images, duration: totalDuration)
     }
 
     /**
@@ -57,6 +54,18 @@ extension UIImage {
     }
 }
 
+extension CGImageSource {
+    func gifLoopCount() -> Int? {
+        guard let properties = CGImageSourceCopyProperties(self, nil) as NSDictionary?,
+              let gifDictionary = properties[kCGImagePropertyGIFDictionary] as? NSDictionary else {
+            return nil
+        }
+
+        let loopCount = gifDictionary[kCGImagePropertyGIFLoopCount] as? Int
+        return loopCount
+    }
+}
+
 /// - Note: for internal use only.  :nodoc:
 @objc(UAirshipImageData)
 public class AirshipImageData: NSObject {
@@ -66,84 +75,143 @@ public class AirshipImageData: NSObject {
         let duration: TimeInterval
     }
 
-    let frames: [Frame]
-    private static let minFrameDuration: TimeInterval = 0.01
+    static let minFrameDuration: TimeInterval = 0.01
+    private let source: CGImageSource
+    private let imageActor: AirshipImageDataFrameActor
     
-    init(frames: [Frame]) {
-        self.frames = frames
+    let isAnimated: Bool
+    let imageFramesCount: Int
+    let loopCount: Int?
+
+    init(_ source: CGImageSource) throws {
+        self.source = source
+        imageFramesCount = CGImageSourceGetCount(source)
+        if imageFramesCount < 1 {
+            throw AirshipErrors.error("Invalid image, no frames.")
+        }
+
+        self.loopCount = source.gifLoopCount()
+        self.isAnimated = imageFramesCount > 1
+        self.imageActor = AirshipImageDataFrameActor(source: source)
     }
 
     @objc
     public convenience init(data: Data) throws {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil)
+        else {
             throw AirshipErrors.error("Invalid image data")
         }
 
-        let frames = AirshipImageData.frames(from: source)
-        if (frames.isEmpty) {
-            throw AirshipErrors.error("Invalid image, no frames.")
-        }
-
-        self.init(frames: frames)
+        try self.init(source)
+    }
+    
+    func loadFrames() -> [Frame] {
+        return Self.frames(from: source)
+    }
+    
+    func getActor() -> AirshipImageDataFrameActor {
+        return self.imageActor
     }
 
     private class func frames(from source: CGImageSource) -> [Frame] {
         let count = CGImageSourceGetCount(source)
         guard count > 1 else {
-            if let image = frameImage(0, source: source) {
-                return [Frame(image: image, duration: 0.0)]
-            } else {
+            guard let image = AirshipImageDataFrameActor.frameImage(0, source: source) else {
                 return []
             }
+            return [Frame(image: image, duration: 0.0)]
         }
 
         var frames: [Frame] = []
         for i in 0..<count {
-            guard let image = frameImage(i, source: source) else {
+            guard let image = AirshipImageDataFrameActor.frameImage(i, source: source) else {
                 continue
             }
 
             frames.append(
                 Frame(
                     image: image,
-                    duration: frameDuration(i, source: source)
+                    duration: AirshipImageDataFrameActor.frameDuration(i, source: source)
                 )
             )
         }
         return frames
     }
+}
 
-    private static func frameImage(_ index: Int, source: CGImageSource) -> UIImage? {
-        guard let imageRef = CGImageSourceCreateImageAtIndex(source, index, nil) else {
+actor AirshipImageDataFrameActor {
+    private let source: CGImageSource
+    
+    let framesCount: Int
+    
+    init(source: CGImageSource) {
+        self.source = source
+        framesCount = CGImageSourceGetCount(source)
+    }
+    
+    func loadFrame(at index: Int) -> AirshipImageData.Frame? {
+        guard index >= 0, index < framesCount else { return nil }
+        
+        guard let image = Self.frameImage(index, source: source) else {
+            return nil
+        }
+
+        return AirshipImageData.Frame(
+            image: image,
+            duration: Self.frameDuration(index, source: source)
+        )
+    }
+    
+    fileprivate static func frameImage(_ index: Int, source: CGImageSource)
+        -> UIImage?
+    {
+        guard let imageRef = CGImageSourceCreateImageAtIndex(source, index, nil)
+        else {
             return nil
         }
 
         return UIImage(cgImage: imageRef)
     }
 
-    private static func frameDuration(
+    fileprivate static func frameDuration(
         _ index: Int,
         source: CGImageSource
     ) -> TimeInterval {
 
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [AnyHashable: Any] else {
-            return minFrameDuration
-        }
-
-        guard let gifProperties = properties[kCGImagePropertyGIFDictionary as String] as? [AnyHashable : Any]
+        guard
+            let properties = imageProperties(index: index, source: source)
         else {
-            return minFrameDuration
+            return AirshipImageData.minFrameDuration
         }
 
-        var delayTime: TimeInterval? = nil
+        let delayTime = properties[kCGImageAnimationDelayTime as String] as? TimeInterval
+        let gifDelayTime = properties[[kCGImagePropertyGIFUnclampedDelayTime as String]] as? TimeInterval
 
-        if #available(iOS 13.0, tvOS 13.0, *) {
-            delayTime = gifProperties[kCGImageAnimationDelayTime as String] as? TimeInterval
+        return max(gifDelayTime ?? delayTime ?? 0.0, AirshipImageData.minFrameDuration)
+    }
+
+    fileprivate static func imageProperties(
+        index: Int,
+        source: CGImageSource
+    ) -> [AnyHashable: Any]? {
+        guard
+            let properties = CGImageSourceCopyPropertiesAtIndex(
+                source,
+                index,
+                nil
+            ) as? [AnyHashable: Any]
+        else {
+            return nil
         }
 
-        let gifDelayTime = gifProperties[[kCGImagePropertyGIFUnclampedDelayTime as String]] as? TimeInterval
+        let gif = properties[
+            kCGImagePropertyGIFDictionary as String
+        ] as? [AnyHashable: Any]
 
-        return max(gifDelayTime ?? delayTime ?? 0.0, minFrameDuration)
+        let webp = properties[
+            kCGImagePropertyWebPDictionary as String
+        ] as? [AnyHashable: Any]
+
+        return gif ?? webp
     }
 }
-

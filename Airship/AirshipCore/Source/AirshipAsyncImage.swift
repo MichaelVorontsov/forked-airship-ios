@@ -1,52 +1,60 @@
 /* Copyright Airship and Contributors */
 
-
+import Combine
 import Foundation
 import SwiftUI
-import Combine
 
-@available(iOS 13.0.0, tvOS 13.0.0, *)
-struct AirshipAsyncImage<Placeholder: View, ImageView: View> : View {
-    
+/// - Note: for internal use only.  :nodoc:
+public struct AirshipAsyncImage<Placeholder: View, ImageView: View>: View {
+
     let url: String
+    let imageLoader: AirshipImageLoader
     let image: (Image, CGSize) -> ImageView
     let placeholder: () -> Placeholder
 
+    public init(
+        url: String,
+        imageLoader: AirshipImageLoader = AirshipImageLoader(),
+        image: @escaping (Image, CGSize) -> ImageView,
+        placeholder: @escaping () -> Placeholder
+    ) {
+        self.url = url
+        self.imageLoader = imageLoader
+        self.image = image
+        self.placeholder = placeholder
+    }
+
     @State private var loadedImage: AirshipImageData? = nil
-
-
     @State private var currentImage: UIImage?
     @State private var imageIndex: Int = 0
     @State private var animationTask: Task<Void, Never>?
     @State private var cancellable: AnyCancellable?
-    @EnvironmentObject var thomasEnvironment: ThomasEnvironment
 
-    var body: some View {
+    public var body: some View {
         content
             .onAppear {
-                if (self.loadedImage != nil) {
-                    self.animationTask?.cancel()
-                    self.animationTask = Task {
-                        await animateImage()
-                    }
+                if self.loadedImage != nil {
+                    startAnimation()
                 } else {
-                    self.cancellable = thomasEnvironment.imageLoader.load(url: self.url)
+                    self.cancellable = self.imageLoader.load(url: self.url)
                         .receive(on: DispatchQueue.main)
-                        .sink(receiveCompletion: { completion in
-                            if case let .failure(error) = completion {
-                                AirshipLogger.error("Unable to load image \(error)")
+                        .sink(
+                            receiveCompletion: { completion in
+                                if case let .failure(error) = completion {
+                                    AirshipLogger.error(
+                                        "Unable to load image \(error)"
+                                    )
+                                }
+                            },
+                            receiveValue: { image in
+                                self.loadedImage = image
+                                startAnimation()
                             }
-                        }, receiveValue: { image in
-                            self.loadedImage = image
-                            self.animationTask?.cancel()
-                            self.animationTask = Task {
-                                await animateImage()
-                            }
-                        })
+                        )
                 }
             }
     }
-    
+
     private var content: some View {
         Group {
             if let image = currentImage {
@@ -61,38 +69,46 @@ struct AirshipAsyncImage<Placeholder: View, ImageView: View> : View {
         }
     }
 
+    private func startAnimation() {
+        self.animationTask?.cancel()
+        self.animationTask = Task {
+            await animateImage()
+        }
+    }
+
     @MainActor
     private func animateImage() async {
-        guard let loadedImage = self.loadedImage else {
+        guard let loadedImage = self.loadedImage else { return }
+        
+        guard loadedImage.isAnimated else {
+            self.currentImage = loadedImage.loadFrames().first?.image
             return
         }
+        
+        let frameActor = loadedImage.getActor()
 
-        guard loadedImage.frames.count > 1 else {
-            self.currentImage = loadedImage.frames[0].image
-            return
-        }
+        imageIndex = 0
+        var frame = await frameActor.loadFrame(at: imageIndex)
 
+        self.currentImage = frame?.image
 
-        let frames = loadedImage.frames
-        self.currentImage = frames[self.imageIndex].image
+        while !Task.isCancelled {
+            let duration = frame?.duration ?? AirshipImageData.minFrameDuration
+            
+            async let delay: () = Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            
+            let nextIndex = (imageIndex + 1) % loadedImage.imageFramesCount
+            
+            do {
+                let (_, nextFrame) = try await (delay, frameActor.loadFrame(at: nextIndex))
+                frame = nextFrame
+            } catch {} // most likely it's a task cancelled exception when animation is stopped
 
-        while(!Task.isCancelled) {
-            let duration = frames[self.imageIndex].duration
-            try? await Task.sleep(
-                nanoseconds: UInt64(duration * 1_000_000_000)
-            )
+            imageIndex = nextIndex
 
-            if (!Task.isCancelled) {
-                if (self.imageIndex >= (frames.count - 1)) {
-                    self.imageIndex = 0
-                } else {
-                    self.imageIndex += 1
-                }
-
-                self.currentImage = frames[self.imageIndex].image
+            if !Task.isCancelled {
+                self.currentImage = frame?.image
             }
         }
-
-        
     }
 }

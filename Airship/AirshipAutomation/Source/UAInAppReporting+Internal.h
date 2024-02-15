@@ -7,12 +7,15 @@
 @class UAThomasPagerInfo;
 @class UAThomasFormInfo;
 @class UAThomasFormResult;
+@class UAExperimentResult;
 
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString *const UAInAppPagerSummaryIndexKey;
 extern NSString *const UAInAppPagerSummaryDurationKey;
 extern NSString *const UAInAppPagerSummaryIDKey;
+
+@class UAExperimentResult;
 
 
 /**
@@ -41,12 +44,23 @@ NS_SWIFT_NAME(InAppReporting)
 
 + (instancetype)buttonTapEventWithScheduleID:(NSString *)scheduleID
                                      message:(UAInAppMessage *)message
+                                    metadata:(id)metadata
                                     buttonID:(NSString *)buttonID;
 
 + (instancetype)pageViewEventWithScheduleID:(NSString *)scheduleID
                                     message:(UAInAppMessage *)message
                                   pagerInfo:(UAThomasPagerInfo *)pagerInfo
                                   viewCount:(NSUInteger)viewCount;
+
++ (instancetype)pageGestureEventWithScheduleID:(NSString *)scheduleID
+                                    identifier:(NSString *)identifier
+                                      metadata:(id)metadata
+                                       message:(UAInAppMessage *)message;
+    
++ (instancetype)pageAutomatedActionEventWithScheduleID:(NSString *)scheduleID
+                                            identifier:(NSString *)identifier
+                                              metadata:(id)metadata
+                                               message:(UAInAppMessage *)message;
 
 + (instancetype)pageSwipeEventWithScheduleID:(NSString *)scheduleID
                                      message:(UAInAppMessage *)message
@@ -77,9 +91,14 @@ NS_SWIFT_NAME(InAppReporting)
                                      startingStatus:(NSString *)startingStatus
                                        endingStatus:(NSString *)endingStatus;
 
++ (instancetype)controlEventForScheduleID:(NSString *)identifier
+                                  message:(UAInAppMessage *)message
+                         experimentResult:(UAExperimentResult *)experimentResult;
+
 @property(nonatomic, copy, nullable) NSDictionary *campaigns;
 @property(nonatomic, copy, nullable) NSDictionary *reportingContext;
 @property(nonatomic, strong, nullable) UAThomasLayoutContext *layoutContext;
+@property(nonatomic, strong, nullable) UAExperimentResult *experimentResult;
 
 - (void)record:(id<UAAnalyticsProtocol>)analytics;
 

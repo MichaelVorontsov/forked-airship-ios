@@ -1,50 +1,47 @@
 /* Copyright Airship and Contributors */
 
-
 /**
  * Shares text using ActivityViewController.
+ * *
+ * Expected argument value is a `String`.
  *
- * This action is registered under the names share_action and ^s.
- *
- * Expected argument value is an NSString.
- *
- * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush,
- * UASituationWebViewInvocation, UASituationManualInvocation,
- * UASituationForegroundInteractiveButton, and UASituationAutomation
- *
- * Default predicate: Rejects situation UASituationForegroundPush.
- *
- * Result value: nil
- *
+ * Valid situations: `ActionSituation.foregroundPush`, `ActionSituation.launchedFromPush`,
+ * `ActionSituation.webViewInvocation`, `ActionSituation.manualInvocation`,
+ * `ActionSituation.foregroundInteractiveButton`, and `ActionSituation.automation`
  */
 #if os(iOS)
-@objc(UAShareAction)
-public class ShareAction : NSObject, Action {
 
+public final class ShareAction: AirshipAction {
+    /// Default names - "share_action", "^s"
+    public static let defaultNames = ["share_action", "^s"]
+
+    /// Default predicate - rejects `ActionSituation.foregroundPush`
+    public static let defaultPredicate: @Sendable (ActionArguments) -> Bool = { args in
+        return args.situation != .foregroundPush
+    }
+    
     @objc
     public static let name = "share_action"
 
     @objc
     public static let shortName = "^s"
-
-
-    public func acceptsArguments(_ arguments: ActionArguments) -> Bool {
+    
+    public func accepts(arguments: ActionArguments) async -> Bool {
         guard arguments.situation != .backgroundPush,
-              arguments.situation != .backgroundInteractiveButton,
-              arguments.value as? String != nil else{
+            arguments.situation != .backgroundInteractiveButton
+        else {
             return false
         }
         return true
     }
 
-    public func perform(
-        with arguments: ActionArguments,
-        completionHandler: UAActionCompletionHandler
-    ) {
+    @MainActor
+    public func perform(arguments: ActionArguments) async throws -> AirshipJSON? {
+
         AirshipLogger.debug("Running share action: \(arguments)")
 
         let activityViewController = ActivityViewController(
-            activityItems: [arguments.value as Any],
+            activityItems: [arguments.value.unWrap() as Any],
             applicationActivities: nil
         )
 
@@ -53,12 +50,14 @@ public class ShareAction : NSObject, Action {
             .print,
             .saveToCameraRoll,
             .airDrop,
-            .postToFacebook
+            .postToFacebook,
         ]
 
         let viewController = UIViewController()
-        var window: UIWindow? = Utils.presentInNewWindow(viewController)
-        window?.windowLevel = .alert
+        var window: UIWindow? = AirshipUtils.presentInNewWindow(
+            viewController,
+            windowLevel: .alert
+        )
 
         activityViewController.dismissalBlock = {
             window?.windowLevel = .normal
@@ -74,8 +73,12 @@ public class ShareAction : NSObject, Action {
             popoverPresentationController.sourceView = viewController.view
         }
 
-        viewController.present(activityViewController, animated: true)
-        completionHandler(ActionResult.empty())
+        viewController.present(
+            activityViewController,
+            animated: true
+        )
+
+        return nil
     }
 }
 #endif

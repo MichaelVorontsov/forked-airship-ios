@@ -2,669 +2,744 @@
 
 import Foundation
 
-// NOTE: For internal use only. :nodoc:
+/// NOTE: For internal use only. :nodoc:
 protocol ContactsAPIClientProtocol {
-    @discardableResult
-    func resolve(channelID: String, completionHandler: @escaping (ContactAPIResponse?, Error?) -> Void) -> Disposable
+    func resolve(
+        channelID: String,
+        contactID: String?,
+        possiblyOrphanedContactID: String?
+    ) async throws ->  AirshipHTTPResponse<ContactIdentifyResult>
 
-    @discardableResult
-    func identify(channelID: String, namedUserID: String, contactID: String?, completionHandler: @escaping (ContactAPIResponse?, Error?) -> Void) -> Disposable
-    
-    @discardableResult
-    func reset(channelID: String, completionHandler: @escaping (ContactAPIResponse?, Error?) -> Void) -> Disposable
-    
-    @discardableResult
-    func update(identifier: String,
-                tagGroupUpdates: [TagGroupUpdate]?,
-                attributeUpdates: [AttributeUpdate]?,
-                subscriptionListUpdates: [ScopedSubscriptionListUpdate]?,
-                completionHandler: @escaping (HTTPResponse?, Error?) -> Void) -> Disposable
-    
-    @discardableResult
-    func associateChannel(identifier: String,
-                          channelID: String,
-                          channelType: ChannelType,
-                          completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable
-    
-    @discardableResult
-    func registerEmail(identifier:String, address: String, options: EmailRegistrationOptions, completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable
-    
-    @discardableResult
-    func registerSMS(identifier:String, msisdn: String, options: SMSRegistrationOptions, completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable
-    
-    @discardableResult
-    func registerOpen(identifier:String, address: String, options: OpenRegistrationOptions, completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable
+    func identify(
+        channelID: String,
+        namedUserID: String,
+        contactID: String?,
+        possiblyOrphanedContactID: String?
+    ) async throws ->  AirshipHTTPResponse<ContactIdentifyResult>
 
-    @discardableResult
-    func fetchSubscriptionLists(_ identifier: String, completionHandler: @escaping (ContactSubscriptionListFetchResponse?, Error?) -> Void) -> Disposable;
+    func reset(
+        channelID: String,
+        possiblyOrphanedContactID: String?
+    ) async throws ->  AirshipHTTPResponse<ContactIdentifyResult>
+
+    func update(
+        contactID: String,
+        tagGroupUpdates: [TagGroupUpdate]?,
+        attributeUpdates: [AttributeUpdate]?,
+        subscriptionListUpdates: [ScopedSubscriptionListUpdate]?
+    ) async throws ->  AirshipHTTPResponse<Void>
+
+    func associateChannel(
+        contactID: String,
+        channelID: String,
+        channelType: ChannelType
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel>
+
+    func registerEmail(
+        contactID: String,
+        address: String,
+        options: EmailRegistrationOptions,
+        locale: Locale
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel>
+
+    func registerSMS(
+        contactID: String,
+        msisdn: String,
+        options: SMSRegistrationOptions,
+        locale: Locale
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel>
+
+    func registerOpen(
+        contactID: String,
+        address: String,
+        options: OpenRegistrationOptions,
+        locale: Locale
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel>
 }
 
-// NOTE: For internal use only. :nodoc:
-class ContactAPIClient : ContactsAPIClientProtocol {
-    private static let path = "/api/contacts"
-    private static let channelsPath = "/api/channels"
-    
-    private static let subscriptionListPath = "/api/subscription_lists/contacts/"
-
-    private static let channelIDKey = "channel_id"
-    private static let namedUserIDKey = "named_user_id"
-    private static let contactIDKey = "contact_id"
-    private static let deviceTypeKey = "device_type"
-    private static let channelKey = "channel"
-    private static let typeKey = "type"
-    private static let commercialOptedInKey = "commercial_opted_in"
-    private static let commercialOptedOutKey = "commercial_opted_out"
-    private static let transactionalOptedInKey = "transactional_opted_in"
-    private static let transactionalOptedOutKey = "transactional_opted_out"
-    private static let optInModeKey = "opt_in_mode"
-    private static let propertiesKey = "properties"
-    private static let addressKey = "address"
-    private static let msisdnKey = "msisdn"
-    private static let senderKey = "sender"
-    private static let optedInKey = "opted_in"
-    private static let timezoneKey = "timezone"
-    private static let localeCountryKey = "locale_country"
-    private static let localeLanguageKey = "locale_language"
-    private static let identifiersKey = "identifiers"
-    private static let openKey = "open"
-    private static let openPlatformName = "open_platform_name"
-    private static let optInKey = "opt_in"
-    private static let associateKey = "associate"
-    
+/// NOTE: For internal use only. :nodoc:
+class ContactAPIClient: ContactsAPIClientProtocol {
     private let config: RuntimeConfig
-    private let session: RequestSession
-    private let localeManager: LocaleManager
-    
+    private let session: AirshipRequestSession
+
     private lazy var decoder: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom({ (decoder) -> Date in
+            let container = try decoder.singleValueContainer()
+            let dateStr = try container.decode(String.self)
+
+            guard let date = AirshipUtils.parseISO8601Date(from: dateStr) else {
+                throw AirshipErrors.error("Invalid date \(dateStr)")
+            }
+            return date
+        })
         return decoder
     }()
 
-    init(config: RuntimeConfig, session: RequestSession) {
+    private lazy var encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom({ date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(
+                AirshipUtils.isoDateFormatterUTCWithDelimiter().string(from: date)
+            )
+        })
+        return encoder
+    }()
+
+    init(config: RuntimeConfig, session: AirshipRequestSession) {
         self.config = config
         self.session = session
-        self.localeManager = LocaleManager(dataStore: PreferenceDataStore(appKey: config.appKey))
     }
 
     convenience init(config: RuntimeConfig) {
-        self.init(config: config, session: RequestSession(config: config))
+        self.init(config: config, session: config.requestSession)
     }
     
-    @discardableResult
-    func resolve(channelID: String, completionHandler: @escaping (ContactAPIResponse?, Error?) -> Void) -> Disposable {
-
-        AirshipLogger.debug("Resolving contact with channel ID \(channelID)")
-
-        let payload: [String : String] = [
-            ContactAPIClient.channelIDKey: channelID,
-            ContactAPIClient.deviceTypeKey: "ios"
-        ]
-
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")\(ContactAPIClient.path)/resolve")
-
-        return session.performHTTPRequest(request, completionHandler: { (data, response, error) in
-            guard let response = response else {
-                AirshipLogger.debug("Resolving contact finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
-            }
-
-            if (response.statusCode == 200) {
-                do {
-                    guard data != nil else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing body"))
-                        return
-                    }
-
-                    let jsonResponse = try JSONSerialization.jsonObject(with: data!, options: .allowFragments) as? [AnyHashable : Any]
-                    guard let contactID = jsonResponse?["contact_id"] as? String else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing contact_id"))
-                        return
-                    }
-                    guard let isAnonymous = jsonResponse?["is_anonymous"] as? Bool else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing is_anonymous"))
-                        return
-                    }
-
-                    AirshipLogger.debug("Resolved contact with response: \(response)")
-                    let contactDataResponse = ContactAPIResponse(status: response.statusCode, contactID: contactID, isAnonymous: isAnonymous)
-                    completionHandler(contactDataResponse, nil)
-                } catch {
-                    completionHandler(nil, error)
-                }
-            } else {
-                let contactDataResponse = ContactAPIResponse(status: response.statusCode, contactID: nil, isAnonymous: false)
-                completionHandler(contactDataResponse, nil)
-            }
-        })
+    func resolve(
+        channelID: String,
+        contactID: String?,
+        possiblyOrphanedContactID: String?
+    ) async throws ->  AirshipHTTPResponse<ContactIdentifyResult> {
+        return try await self.performIdentify(
+            channelID: channelID,
+            identifyRequest: .resolve(contactID: contactID, possiblyOrphanedContactID: possiblyOrphanedContactID)
+        )
     }
 
-    @discardableResult
-    func identify(channelID: String, namedUserID: String, contactID: String?, completionHandler: @escaping (ContactAPIResponse?, Error?) -> Void) -> Disposable {
+    func reset(
+        channelID: String,
+        possiblyOrphanedContactID: String?
+    ) async throws ->  AirshipHTTPResponse<ContactIdentifyResult> {
+        return try await self.performIdentify(
+            channelID: channelID,
+            identifyRequest: .reset(possiblyOrphanedContactID: possiblyOrphanedContactID)
+        )
+    }
 
-        AirshipLogger.debug("Identifying contact with channel ID \(channelID)")
+    func identify(
+        channelID: String,
+        namedUserID: String,
+        contactID: String?,
+        possiblyOrphanedContactID: String?
+    ) async throws ->  AirshipHTTPResponse<ContactIdentifyResult> {
+        return try await self.performIdentify(
+            channelID: channelID,
+            identifyRequest: .identify(namedUserID: namedUserID, contactID: contactID, possiblyOrphanedContactID: possiblyOrphanedContactID)
+        )
+    }
 
-        var payload: [String : String] = [
-            ContactAPIClient.channelIDKey: channelID,
-            ContactAPIClient.namedUserIDKey: namedUserID,
-            ContactAPIClient.deviceTypeKey: "ios"
-        ]
+    func update(
+        contactID: String,
+        tagGroupUpdates: [TagGroupUpdate]?,
+        attributeUpdates: [AttributeUpdate]?,
+        subscriptionListUpdates: [ScopedSubscriptionListUpdate]?
+    ) async throws ->  AirshipHTTPResponse<Void> {
+        let requestBody = ContactUpdateRequestBody(
+            attributes: try attributeUpdates?.toRequestBody(),
+            tags: tagGroupUpdates?.toRequestBody(),
+            subscriptionLists: subscriptionListUpdates?.toRequestBody(),
+            associate: nil
+        )
 
-        if (contactID != nil) {
-            payload[ContactAPIClient.contactIDKey] = contactID
-        }
-        
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")\(ContactAPIClient.path)/identify")
-
-        return session.performHTTPRequest(request, completionHandler: { (data, response, error) in
-            
-            guard let response = response else {
-                AirshipLogger.debug("Identifying contact finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
-            }
-
-            if (response.statusCode == 200) {
-                do {
-                    guard data != nil else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing body"))
-                        return
-                    }
-
-                    let jsonResponse = try JSONSerialization.jsonObject(with: data!, options: .allowFragments) as? [AnyHashable : Any]
-                    guard let contactID = jsonResponse?["contact_id"] as? String else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing contact_id"))
-                        return
-                    }
-
-                    AirshipLogger.debug("Identified contact with response: \(response)")
-                    let contactDataResponse = ContactAPIResponse(status: response.statusCode, contactID: contactID, isAnonymous: false)
-                    completionHandler(contactDataResponse, nil)
-                } catch {
-                    completionHandler(nil, error)
-                }
-            } else {
-                let contactDataResponse = ContactAPIResponse(status: response.statusCode, contactID: nil, isAnonymous: false)
-                completionHandler(contactDataResponse, nil)
-            }
-        })
+        return try await performUpdate(contactID: contactID, requestBody: requestBody)
     }
     
-    @discardableResult
-    func reset(channelID: String, completionHandler: @escaping (ContactAPIResponse?, Error?) -> Void) -> Disposable {
-
-        AirshipLogger.debug("Resetting contact with channel ID \(channelID)")
-
-        let payload: [String : String] = [
-            ContactAPIClient.channelIDKey: channelID,
-            ContactAPIClient.deviceTypeKey: "ios"
-        ]
-
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")\(ContactAPIClient.path)/reset")
-
-        return session.performHTTPRequest(request, completionHandler: { (data, response, error) in
-            guard let response = response else {
-                AirshipLogger.debug("Resetting contact finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
-            }
-
-            if (response.statusCode == 200) {
-                do {
-                    guard data != nil else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing body"))
-                        return
-                    }
-
-                    let jsonResponse = try JSONSerialization.jsonObject(with: data!, options: .allowFragments) as? [AnyHashable : Any]
-                    guard let contactID = jsonResponse?["contact_id"] as? String else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing contact_id"))
-                        return
-                    }
-
-                    AirshipLogger.debug("Reset contact with response: \(response)")
-                    let contactDataResponse = ContactAPIResponse(status: response.statusCode, contactID: contactID, isAnonymous: false)
-                    completionHandler(contactDataResponse, nil)
-                } catch {
-                    completionHandler(nil, error)
-                }
-            } else {
-                let contactDataResponse = ContactAPIResponse(status: response.statusCode, contactID: nil, isAnonymous: false)
-                completionHandler(contactDataResponse, nil)
-            }
-        })
-    }
-    
-    @discardableResult
-    func update(identifier: String,
-                tagGroupUpdates: [TagGroupUpdate]?,
-                attributeUpdates: [AttributeUpdate]?,
-                subscriptionListUpdates: [ScopedSubscriptionListUpdate]?,
-                completionHandler: @escaping (HTTPResponse?, Error?) -> Void) -> Disposable {
-
-        AirshipLogger.debug("Updating contact with identifier \(identifier)")
-
-
-        var payload: [String: Any] = [:]
-        
-        if let attributeUpdates = attributeUpdates, !attributeUpdates.isEmpty {
-            payload["attributes"] = map(attributeUpdates: attributeUpdates)
-        }
-        
-        if let tagGroupUpdates = tagGroupUpdates, !tagGroupUpdates.isEmpty {
-            payload["tags"] = map(tagUpdates: tagGroupUpdates)
-        }
-        
-        if let subscriptionListUpdates = subscriptionListUpdates, !subscriptionListUpdates.isEmpty {
-            payload["subscription_lists"] = map(subscriptionListUpdates: subscriptionListUpdates)
-        }
-        
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")/api/contacts/\(identifier)")
-
-        return session.performHTTPRequest(request, completionHandler: { (data, response, error) in
-            guard let response = response else {
-                AirshipLogger.debug("Update finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
-            }
-
-            AirshipLogger.debug("Update finished with response: \(response)")
-            completionHandler(HTTPResponse(status: response.statusCode), nil)
-        })
-    }
-    
-    @discardableResult
-    func associateChannel(identifier: String,
-                          channelID: String,
-                          channelType: ChannelType,
-                          completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable {
-
-        AirshipLogger.debug("Associate channel \(channelID) with contact \(identifier)")
-            
-        let payload: [String: Any] = [
-            ContactAPIClient.associateKey: [
-                [
-                    ContactAPIClient.deviceTypeKey: channelType.stringValue,
-                    ContactAPIClient.channelIDKey: channelID
-                ]
+    func associateChannel(
+        contactID: String,
+        channelID: String,
+        channelType: ChannelType
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel> {
+        let requestBody = ContactUpdateRequestBody(
+            attributes: nil,
+            tags: nil,
+            subscriptionLists: nil,
+            associate: [
+                ContactUpdateRequestBody.AssociateChannelOperation(
+                    deviceType: channelType.stringValue,
+                    channelID: channelID
+                )
             ]
-        ]
-        
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")/api/contacts/\(identifier)")
+        )
 
-        return session.performHTTPRequest(request) { data, response, error in
-            guard let response = response else {
-                AirshipLogger.debug("Associate channel finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
-            }
-            AirshipLogger.debug("Associate channel finished with response: \(response)")
-            if (response.statusCode == 200) {
-                let channel = AssociatedChannel(channelType: channelType, channelID: channelID)
-                let regResponse = ContactAssociatedChannelResponse(status: response.statusCode, channel: channel)
-                completionHandler(regResponse, nil)
+        return try await performUpdate(
+            contactID: contactID,
+            requestBody: requestBody
+        ).map { response in
+            if (response.isSuccess) {
+                return AssociatedChannel(channelType: channelType, channelID: channelID)
             } else {
-                let regResponse = ContactAssociatedChannelResponse(status: response.statusCode)
-                completionHandler(regResponse, nil)
+                return nil
             }
         }
     }
-    
-    @discardableResult
-    func registerEmail(identifier: String,
-                       address: String,
-                       options: EmailRegistrationOptions,
-                       completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable {
-        
-        let currentLocale = self.localeManager.currentLocale
-        
-        var channelPayload: [String : Any] = [
-            ContactAPIClient.typeKey: "email",
-            ContactAPIClient.addressKey: address,
-            ContactAPIClient.timezoneKey: TimeZone.current.identifier,
-            ContactAPIClient.localeCountryKey: currentLocale.regionCode ?? "",
-            ContactAPIClient.localeLanguageKey: currentLocale.languageCode ?? ""
-        ]
-        
-        let formatter = Utils.isoDateFormatterUTCWithDelimiter()
-        if let transactionalOptedIn = options.transactionalOptedIn {
-            channelPayload[ContactAPIClient.transactionalOptedInKey] = formatter.string(from:transactionalOptedIn)
-        }
-        
-        if let commercialOptedIn = options.commercialOptedIn {
-            channelPayload[ContactAPIClient.commercialOptedInKey] = formatter.string(from:commercialOptedIn)
-        }
-                
-        var payload: [String : Any] = [
-            ContactAPIClient.channelKey: channelPayload,
-            ContactAPIClient.optInModeKey: options.doubleOptIn ? "double" : "classic"
-        ]
-        
-        if let properties = options.properties {
-            payload[ContactAPIClient.propertiesKey] = properties.value()
-        }
-        
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")\(ContactAPIClient.channelsPath)/restricted/email")
-        
-        AirshipLogger.debug("Creating an Email channel with address \(address)")
-        return registerChannel(identifier,
-                               request: request,
-                               channelType: .email,
-                               completionHandler: completionHandler)
 
+    func registerEmail(
+        contactID: String,
+        address: String,
+        options: EmailRegistrationOptions,
+        locale: Locale
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel> {
+        return try await performChannelRegistration(
+            contactID: contactID,
+            requestBody: EmailChannelRegistrationBody(
+                address: address,
+                options: options,
+                locale: locale,
+                timezone: TimeZone.current.identifier
+            ),
+            channelType: .email
+        )
     }
-    
-    @discardableResult
-    func registerSMS(identifier: String,
-                     msisdn: String,
-                     options: SMSRegistrationOptions,
-                     completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable {
-        
-        let currentLocale = self.localeManager.currentLocale
-        let payload: [String : Any] = [
-            ContactAPIClient.msisdnKey: msisdn,
-            ContactAPIClient.senderKey: options.senderID,
-            ContactAPIClient.timezoneKey: TimeZone.current.identifier,
-            ContactAPIClient.localeCountryKey: currentLocale.regionCode ?? "",
-            ContactAPIClient.localeLanguageKey: currentLocale.languageCode ?? ""
-        ]
-        
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")\(ContactAPIClient.channelsPath)/restricted/sms")
 
-        AirshipLogger.debug("Registering an SMS channel with msisdn \(msisdn) and sender \(options.senderID)")
-        return registerChannel(identifier,
-                               request: request,
-                               channelType: .sms,
-                               completionHandler: completionHandler)
+    func registerSMS(
+        contactID: String,
+        msisdn: String,
+        options: SMSRegistrationOptions,
+        locale: Locale
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel> {
+        return try await performChannelRegistration(
+            contactID: contactID,
+            requestBody: SMSRegistrationBody(
+                msisdn: msisdn,
+                options: options,
+                locale: locale,
+                timezone: TimeZone.current.identifier
+            ),
+            channelType: .sms
+        )
     }
-    
-    @discardableResult
-    func registerOpen(identifier: String, address: String, options: OpenRegistrationOptions, completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable {
-        let currentLocale = self.localeManager.currentLocale
-        
-        var openPayload: [String : Any] = [
-            ContactAPIClient.openPlatformName: options.platformName
-        ]
-        
-        if let identifiers = options.identifiers {
-            var identifiersPayload: [String : Any] = [:]
-            for (key, value) in identifiers {
-                identifiersPayload[key] = value
-            }
-            openPayload[ContactAPIClient.identifiersKey] = identifiersPayload
-        }
-        
-        let payload: [String : Any] = [
-            ContactAPIClient.channelKey: [
-                ContactAPIClient.typeKey: "open",
-                ContactAPIClient.addressKey: address,
-                ContactAPIClient.timezoneKey: TimeZone.current.identifier,
-                ContactAPIClient.localeCountryKey: currentLocale.regionCode ?? "",
-                ContactAPIClient.localeLanguageKey: currentLocale.languageCode ?? "",
-                ContactAPIClient.optInKey: true,
-                ContactAPIClient.openKey: openPayload
-            ]
-        ]
-        
-        let request = self.request(payload, "\(config.deviceAPIURL ?? "")\(ContactAPIClient.channelsPath)/restricted/open")
 
-        AirshipLogger.debug("Registering an open channel with address \(address)")
-        return registerChannel(identifier,
-                               request: request,
-                               channelType: .open,
-                               completionHandler: completionHandler)
+    func registerOpen(
+        contactID: String,
+        address: String,
+        options: OpenRegistrationOptions,
+        locale: Locale
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel> {
+        return try await performChannelRegistration(
+            contactID: contactID,
+            requestBody: OpenChannelRegistrationBody(
+                address: address,
+                options: options,
+                locale: locale,
+                timezone: TimeZone.current.identifier
+            ),
+            channelType: .open
+        )
     }
-    
-    private func registerChannel(_ identifier: String,
-                                 request: Request,
-                                 channelType: ChannelType,
-                                 completionHandler: @escaping (ContactAssociatedChannelResponse?, Error?) -> Void) -> Disposable {
-        
-        let lock = Lock()
-        var requestDisposable: Disposable? = nil
-        var isDisposed = false
-        
-        let disposable = Disposable {
-            lock.sync {
-                requestDisposable?.dispose()
-                isDisposed = true
-            }
+
+    private func makeURL(path: String) throws -> URL {
+        guard let deviceAPIURL = self.config.deviceAPIURL else {
+            throw AirshipErrors.error("Initial config not resolved.")
         }
-        
-        requestDisposable = session.performHTTPRequest(request, completionHandler: { (data, response, error) in
-            guard let response = response else {
-                AirshipLogger.debug("Creating \(channelType) channel finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
+
+        let urlString = "\(deviceAPIURL)\(path)"
+
+        guard let url = URL(string: "\(deviceAPIURL)\(path)") else {
+            throw AirshipErrors.error("Invalid ContactAPIClient URL: \(String(describing: urlString))")
+        }
+
+        return url
+    }
+
+    private func makeChannelCreateURL(channelType: ChannelType) throws -> URL {
+        switch(channelType) {
+        case .email:
+            return try self.makeURL(path: "/api/channels/restricted/email")
+        case .open:
+            return try self.makeURL(path: "/api/channels/restricted/open")
+        case .sms:
+            return try self.makeURL(path: "/api/channels/restricted/sms")
+        }
+    }
+
+    private func performChannelRegistration<T: Encodable>(
+        contactID: String,
+        requestBody: T,
+        channelType: ChannelType
+    ) async throws ->  AirshipHTTPResponse<AssociatedChannel> {
+        let request = AirshipRequest(
+            url: try self.makeChannelCreateURL(channelType: channelType),
+            headers: [
+                "Accept":  "application/vnd.urbanairship+json; version=3;",
+                "Content-Type": "application/json"
+            ],
+            method: "POST",
+            auth: .generatedAppToken,
+            body: try self.encoder.encode(requestBody)
+        )
+
+        let decoder = self.decoder
+        let createResponse: AirshipHTTPResponse<ChannelCreateResult> = try await self.session.performHTTPRequest(
+            request
+        ) { (data, response) in
+            AirshipLogger.debug(
+                "Channel \(channelType) created with response: \(response)"
+            )
+
+            guard let data = data, response.statusCode == 200 || response.statusCode == 201 else {
+                return nil
             }
 
-            AirshipLogger.debug("Contact channel \(channelType) created with response: \(response)")
-            guard response.statusCode == 200 || response.statusCode == 201 else {
-                let regResponse = ContactAssociatedChannelResponse(status: response.statusCode)
-                completionHandler(regResponse, nil)
-                return
-            }
-            
-            do {
-                guard let channelID = try self.parseChannelID(data: data) else {
-                    completionHandler(nil, AirshipErrors.error("Missing channel ID"))
-                    return
-                }
-                
-                lock.sync {
-                    if (isDisposed) {
-                        completionHandler(nil, AirshipErrors.error("cancelled"))
-                    } else {
-                        requestDisposable = self.associateChannel(identifier: identifier,
-                                                                  channelID: channelID,
-                                                                  channelType: channelType,
-                                                                  completionHandler: completionHandler)
-                    }
-                }
-            } catch {
-                completionHandler(nil, error)
-            }
-        })
-        
-        return disposable
+            return try decoder.decode(ChannelCreateResult.self, from: data)
+        }
+
+        guard createResponse.isSuccess, let channelID = createResponse.result?.channelID else {
+            return try createResponse.map { _ in return nil }
+        }
+
+        return try await associateChannel(
+            contactID: contactID,
+            channelID: channelID,
+            channelType: channelType
+        )
     }
-    
-    private func parseChannelID(data: Data?) throws -> String? {
-        guard let data = data else {
+
+    private func performIdentify(
+        channelID: String,
+        identifyRequest: ContactIdentifyRequestBody
+    ) async throws ->  AirshipHTTPResponse<ContactIdentifyResult> {
+        AirshipLogger.debug("Identifying contact for channel ID \(channelID) request \(identifyRequest)")
+
+        let request = AirshipRequest(
+            url: try makeURL(path: "/api/contacts/identify/v2"),
+            headers: [
+                "Accept": "application/vnd.urbanairship+json; version=3;",
+                "Content-Type": "application/json",
+            ],
+            method: "POST",
+            auth: .generatedChannelToken(identifier: channelID),
+            body: try self.encoder.encode(identifyRequest)
+        )
+
+        let decoder = self.decoder
+        return try await session.performHTTPRequest(request) { (data, response) in
+            AirshipLogger.debug("Contact identify request finished with response: \(response)")
+
+            guard response.statusCode == 200, let data = data else {
+                return nil
+            }
+
+            return try decoder.decode(ContactIdentifyResult.self, from: data)
+        }
+    }
+
+    private func performUpdate(
+        contactID: String,
+        requestBody: ContactUpdateRequestBody
+    ) async throws -> AirshipHTTPResponse<Void> {
+        AirshipLogger.debug("Updating contact \(contactID) with \(requestBody)")
+
+        let request =  AirshipRequest(
+            url: try self.makeURL(path: "/api/contacts/\(contactID)"),
+            headers: [
+                "Accept":  "application/vnd.urbanairship+json; version=3;",
+                "Content-Type": "application/json",
+                "X-UA-Appkey": self.config.appKey,
+            ],
+            method: "POST",
+            auth: .contactAuthToken(identifier: contactID),
+            body: try self.encoder.encode(requestBody)
+        )
+
+        return try await session.performHTTPRequest(request) { (data, response) in
+            AirshipLogger.debug(
+                "Update finished with response: \(response)"
+            )
+
             return nil
         }
-        
-        let jsonResponse = try JSONSerialization.jsonObject(with: data, options: .allowFragments) as? [AnyHashable : Any]
-
-        return jsonResponse?["channel_id"] as? String
-    }
-    
-    private func request(_ payload: [AnyHashable : Any], _ urlString: String) -> Request {
-        return Request(builderBlock: { [self] builder in
-            builder.method = "POST"
-            builder.url = URL(string: urlString)
-            builder.username = config.appKey
-            builder.password = config.appSecret
-            builder.setValue("application/vnd.urbanairship+json; version=3;", header: "Accept")
-            builder.setValue("application/json", header: "Content-Type")
-            builder.body = try? JSONUtils.data(payload, options: [])
-        })
-    }
-    
-    private func map(subscriptionListUpdates: [ScopedSubscriptionListUpdate]) -> [[AnyHashable : Any]] {
-        return AudienceUtils.collapse(subscriptionListUpdates).map { (list) -> ([AnyHashable : Any]) in
-            var action : String
-            switch(list.type) {
-            case .subscribe:
-                action = "subscribe"
-            case .unsubscribe:
-                action = "unsubscribe"
-            }
-            return [
-                "action": action,
-                "list_id": list.listId,
-                "scope": list.scope.stringValue,
-                "timestamp": Utils.isoDateFormatterUTCWithDelimiter().string(from: list.date)
-            ]
-        }
-    }
-    
-    private func map(attributeUpdates: [AttributeUpdate]) -> [[AnyHashable : Any]] {
-        return AudienceUtils.collapse(attributeUpdates).compactMap { (attribute) -> ([AnyHashable : Any]?) in
-            switch(attribute.type) {
-            case .set:
-                guard let value = attribute.jsonValue?.value() else {
-                    return nil
-                }
-                
-                return [
-                    "action": "set",
-                    "key": attribute.attribute,
-                    "value": value,
-                    "timestamp": Utils.isoDateFormatterUTCWithDelimiter().string(from: attribute.date)
-                ]
-            case .remove:
-                return [
-                    "action": "remove",
-                    "key": attribute.attribute,
-                    "timestamp": Utils.isoDateFormatterUTCWithDelimiter().string(from: attribute.date)
-                ]
-            }
-        }
-    }
-    
-    private func map(tagUpdates: [TagGroupUpdate]) -> [AnyHashable : Any] {
-        var tagsPayload : [String : [String: [String]]] = [:]
-        
-        AudienceUtils.collapse(tagUpdates).forEach { tagUpdate in
-            switch (tagUpdate.type) {
-            case .add:
-                if (tagsPayload["add"] == nil) {
-                    tagsPayload["add"] = [:]
-                }
-                tagsPayload["add"]?[tagUpdate.group] = tagUpdate.tags
-                break
-            case .remove:
-                if (tagsPayload["remove"] == nil) {
-                    tagsPayload["remove"] = [:]
-                }
-                tagsPayload["remove"]?[tagUpdate.group] = tagUpdate.tags
-                break
-            case .set:
-                if (tagsPayload["set"] == nil) {
-                    tagsPayload["set"] = [:]
-                }
-                tagsPayload["set"]?[tagUpdate.group] = tagUpdate.tags
-                break
-            }
-        }
-        
-        return tagsPayload
-    }
-    
-
-    @discardableResult
-    func fetchSubscriptionLists(_ identifier: String,
-                                completionHandler: @escaping (ContactSubscriptionListFetchResponse?, Error?) -> Void) -> Disposable {
-
-        AirshipLogger.debug("Retrieving subscription lists associated with a contact")
-
-        let request = Request(builderBlock: { [self] builder in
-            builder.method = "GET"
-            builder.url = URL(string: "\(config.deviceAPIURL ?? "")\(ContactAPIClient.subscriptionListPath)\(identifier)")
-            builder.username = config.appKey
-            builder.password = config.appSecret
-            builder.setValue("application/vnd.urbanairship+json; version=3;", header: "Accept")
-        })
-
-        return session.performHTTPRequest(request, completionHandler: { (data, response, error) in
-            guard let response = response else {
-                AirshipLogger.debug("Retrieving subscription lists associated with a contact finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
-            }
-
-            if (response.statusCode == 200) {
-                AirshipLogger.debug("Retrieved lists with response: \(response)")
-
-                do {
-                    guard let data = data else {
-                        completionHandler(nil, AirshipErrors.parseError("Missing body"))
-                        return
-                    }
-                    
-                    let parsedBody = try self.decoder.decode(SubscriptionResponseBody.self,
-                                                             from: data)
-                    let scopedLists = try parsedBody.toScopedSubscriptionLists()
-                    let clientResponse = ContactSubscriptionListFetchResponse(response.statusCode, scopedLists)
-                    completionHandler(clientResponse, nil)
-                } catch {
-                    completionHandler(nil, error)
-                }
-            } else {
-                let clientResponse = ContactSubscriptionListFetchResponse(response.statusCode)
-                completionHandler(clientResponse, nil)
-            }
-        })
     }
 }
 
+struct ContactIdentifyResult: Decodable, Equatable {
+    let contact: ContactInfo
+    let token: String
+    let tokenExpiresInMilliseconds: UInt
 
-class ContactAssociatedChannelResponse : HTTPResponse {
-
-    public let channel: AssociatedChannel?
-
-    public init(status: Int, channel: AssociatedChannel? = nil) {
-        self.channel = channel
-        super.init(status: status)
-    }
-}
-
-
-class ContactSubscriptionListFetchResponse : HTTPResponse {
-    let result: [String: [ChannelScope]]?
-
-    init(_ status: Int, _ result: [String: [ChannelScope]]? = nil) {
-        self.result = result
-        super.init(status: status)
-    }
-}
-
-internal struct SubscriptionResponseBody : Decodable {
-    let subscriptionLists: [Entry]
-    
     enum CodingKeys: String, CodingKey {
-        case subscriptionLists = "subscription_lists"
+        case tokenExpiresInMilliseconds = "token_expires_in"
+        case token = "token"
+        case contact = "contact"
     }
-    
-    struct Entry : Decodable, Equatable {
-        let lists: [String]
-        let scope: String
-        
+
+    struct ContactInfo: Decodable, Equatable {
+        let channelAssociatedDate: Date
+        let contactID: String
+        let isAnonymous: Bool
+
         enum CodingKeys: String, CodingKey {
-            case lists = "list_ids"
-            case scope = "scope"
+            case channelAssociatedDate = "channel_association_timestamp"
+            case contactID = "contact_id"
+            case isAnonymous = "is_anonymous"
         }
     }
-    
-    func toScopedSubscriptionLists() throws -> [String: [ChannelScope]] {
-        var parsed: [String: [ChannelScope]] = [:]
-        try self.subscriptionLists.forEach { entry in
-            let scope = try ChannelScope.fromString(entry.scope)
-            entry.lists.forEach { listID in
-                var scopes = parsed[listID] ?? []
-                if (!scopes.contains(scope)) {
-                    scopes.append(scope)
-                    parsed[listID] = scopes
-                }
-            }
+}
+
+fileprivate struct ContactUpdateRequestBody: Encodable {
+    let attributes: [AttributeOperation]?
+    let tags: TagUpdates?
+    let subscriptionLists: [SubscriptionListOperation]?
+    let associate: [AssociateChannelOperation]?
+
+    enum CodingKeys: String, CodingKey {
+        case attributes = "attributes"
+        case tags = "tags"
+        case subscriptionLists = "subscription_lists"
+        case associate = "associate"
+    }
+
+    enum AttributeOperationAction: String, Encodable {
+        case set
+        case remove
+    }
+
+    struct AttributeOperation: Encodable {
+        let action: AttributeOperationAction
+        let key: String
+        let value: AirshipJSON?
+        let timestamp: Date
+    }
+
+    struct TagUpdates: Encodable {
+        let adds: [String: [String]]?
+        let removes: [String: [String]]?
+        let sets: [String: [String]]?
+
+        enum CodingKeys: String, CodingKey {
+            case adds = "add"
+            case removes = "remove"
+            case sets = "set"
         }
-        return parsed
+    }
+
+    enum SubscriptionListOperationAction: String, Encodable {
+        case subscribe
+        case unsubscribe
+    }
+
+    struct SubscriptionListOperation: Encodable {
+        let action: SubscriptionListOperationAction
+        let scope: String
+        let timestamp: Date
+        let listID: String
+
+        enum CodingKeys: String, CodingKey {
+            case action
+            case scope
+            case timestamp
+            case listID = "list_id"
+        }
+    }
+
+    struct AssociateChannelOperation: Encodable {
+        let deviceType: String
+        let channelID: String
+
+        enum CodingKeys: String, CodingKey {
+            case deviceType = "device_type"
+            case channelID = "channel_id"
+        }
     }
 }
 
 
+fileprivate struct ContactIdentifyRequestBody: Encodable {
+    private let deviceInfo = DeviceInfo()
+    private let action: RequestAction
+
+    internal init(action: RequestAction) {
+        self.action = action
+    }
+
+    static func identify(namedUserID: String, contactID: String?, possiblyOrphanedContactID: String?) -> ContactIdentifyRequestBody {
+        return ContactIdentifyRequestBody(
+            action: RequestAction(type: "identify", namedUserID: namedUserID, contactID: contactID, possiblyOrphanedContactID: possiblyOrphanedContactID)
+        )
+    }
+
+    static func reset(possiblyOrphanedContactID: String?) -> ContactIdentifyRequestBody {
+        return ContactIdentifyRequestBody(
+            action: RequestAction(type: "reset", namedUserID: nil, contactID: nil, possiblyOrphanedContactID: possiblyOrphanedContactID)
+        )
+    }
+
+    static func resolve(contactID: String?, possiblyOrphanedContactID: String?) -> ContactIdentifyRequestBody {
+        return ContactIdentifyRequestBody(
+            action: RequestAction(type: "resolve", namedUserID: nil, contactID: contactID, possiblyOrphanedContactID: possiblyOrphanedContactID)
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case deviceInfo = "device_info"
+        case action = "action"
+    }
+
+    internal struct DeviceInfo: Codable {
+        let deviceType = "ios"
+
+        enum CodingKeys: String, CodingKey {
+            case deviceType = "device_type"
+        }
+    }
+
+    internal struct RequestAction: Codable {
+        let type: String
+        let namedUserID: String?
+        let contactID: String?
+        let possiblyOrphanedContactID: String?
+
+        enum CodingKeys: String, CodingKey {
+            case type = "type"
+            case namedUserID = "named_user_id"
+            case contactID = "contact_id"
+            case possiblyOrphanedContactID = "possibly_orphaned_contact_id"
+        }
+    }
+}
+
+fileprivate struct OpenChannelRegistrationBody: Encodable {
+    let channel: ChannelPayload
+
+    init(
+        address: String,
+        options: OpenRegistrationOptions,
+        locale: Locale,
+        timezone: String
+    ) {
+        self.channel = ChannelPayload(
+            address: address,
+            timezone: timezone,
+            localeCountry: locale.regionCode,
+            localeLanguage: locale.languageCode,
+            openInfo: OpenPayload(
+                platformName: options.platformName,
+                identifiers: options.identifiers
+            )
+        )
+    }
+
+    internal struct ChannelPayload: Encodable {
+        let type = "open"
+        let optIn = true
+        let address: String
+        let timezone: String
+        let localeCountry: String?
+        let localeLanguage: String?
+        let openInfo: OpenPayload
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case optIn = "opt_in"
+            case address
+            case timezone
+            case localeCountry = "locale_country"
+            case localeLanguage  = "locale_language"
+            case openInfo = "open"
+        }
+    }
+
+    internal struct OpenPayload: Encodable {
+        let platformName: String
+        let identifiers: [String: String]?
+
+        enum CodingKeys: String, CodingKey {
+            case platformName = "open_platform_name"
+            case identifiers
+        }
+    }
+}
+
+fileprivate struct EmailChannelRegistrationBody: Encodable {
+    let channel: ChannelPayload
+    let properties: AirshipJSON?
+    let optInMode: OptInMode
+
+    init(
+        address: String,
+        options: EmailRegistrationOptions,
+        locale: Locale,
+        timezone: String
+    ) {
+        self.channel = ChannelPayload(
+            address: address,
+            timezone: timezone,
+            localeCountry: locale.regionCode,
+            localeLanguage: locale.languageCode,
+            commercialOptedIn: options.commercialOptedIn,
+            transactionalOptedIn: options.transactionalOptedIn
+        )
+
+        self.optInMode = options.doubleOptIn ? .double : .classic
+        self.properties = options.properties
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case channel
+        case properties
+        case optInMode = "opt_in_mode"
+    }
+
+    internal enum OptInMode: String, Encodable {
+        case classic
+        case double
+    }
+
+    internal struct ChannelPayload: Encodable {
+        let type = "email"
+        let address: String
+        let timezone: String
+        let localeCountry: String?
+        let localeLanguage: String?
+        let commercialOptedIn: Date?
+        let transactionalOptedIn: Date?
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case address
+            case timezone
+            case localeCountry = "locale_country"
+            case localeLanguage  = "locale_language"
+            case commercialOptedIn = "commercial_opted_in"
+            case transactionalOptedIn = "transactional_opted_in"
+        }
+    }
+
+    internal struct OpenPayload: Encodable {
+        let platformName: String
+        let identifiers: [String: String]?
+
+        enum CodingKeys: String, CodingKey {
+            case platformName = "open_platform_name"
+            case identifiers
+        }
+    }
+}
+
+fileprivate struct SMSRegistrationBody: Encodable {
+    let msisdn: String
+    let sender: String
+    let timezone: String
+    let localeCountry: String?
+    let localeLanguage: String?
+
+    init(
+        msisdn: String,
+        options: SMSRegistrationOptions,
+        locale: Locale,
+        timezone: String
+    ) {
+        self.msisdn = msisdn
+        self.sender = options.senderID
+        self.timezone = timezone
+        self.localeCountry = locale.regionCode
+        self.localeLanguage = locale.languageCode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case msisdn
+        case sender
+        case timezone
+        case localeCountry = "locale_country"
+        case localeLanguage  = "locale_language"
+    }
+}
 
 
+fileprivate struct ChannelCreateResult: Decodable {
+    let channelID: String
 
+    enum CodingKeys: String, CodingKey {
+        case channelID = "channel_id"
+    }
+}
+
+
+fileprivate extension Array where Element == TagGroupUpdate {
+    func toRequestBody() -> ContactUpdateRequestBody.TagUpdates? {
+        var adds: [String: [String]] = [:]
+        var removes: [String: [String]] = [:]
+        var sets: [String: [String]] = [:]
+
+
+        self.forEach { update in
+            switch update.type {
+            case .add:
+                adds[update.group] = update.tags
+            case .remove:
+                removes[update.group] = update.tags
+            case .set:
+                sets[update.group] = update.tags
+            }
+        }
+
+        guard !adds.isEmpty || !removes.isEmpty || !sets.isEmpty else {
+            return nil
+        }
+
+        return ContactUpdateRequestBody.TagUpdates(
+            adds: adds.isEmpty ? nil : adds,
+            removes: removes.isEmpty ? nil : removes,
+            sets: sets.isEmpty ? nil : sets
+        )
+    }
+}
+
+
+fileprivate extension Array where Element == ScopedSubscriptionListUpdate {
+    func toRequestBody() -> [ContactUpdateRequestBody.SubscriptionListOperation]? {
+        let mapped = self.map { update in
+            switch(update.type) {
+            case .subscribe:
+                return ContactUpdateRequestBody.SubscriptionListOperation(
+                    action: .subscribe,
+                    scope: update.scope.stringValue,
+                    timestamp: update.date,
+                    listID: update.listId
+                )
+            case .unsubscribe:
+                return ContactUpdateRequestBody.SubscriptionListOperation(
+                    action: .unsubscribe,
+                    scope: update.scope.stringValue,
+                    timestamp: update.date,
+                    listID: update.listId
+                )
+            }
+        }
+
+        guard !mapped.isEmpty else {
+            return nil
+        }
+
+        return mapped
+    }
+}
+
+fileprivate extension Array where Element == AttributeUpdate {
+    func toRequestBody() throws -> [ContactUpdateRequestBody.AttributeOperation]? {
+        let mapped = self.map { update in
+            switch(update.type) {
+            case .set:
+                return ContactUpdateRequestBody.AttributeOperation(
+                    action: .set,
+                    key: update.attribute,
+                    value: update.jsonValue,
+                    timestamp: update.date
+                )
+            case .remove:
+                return ContactUpdateRequestBody.AttributeOperation(
+                    action: .remove,
+                    key: update.attribute,
+                    value: nil,
+                    timestamp: update.date
+                )
+            }
+        }
+
+        guard !mapped.isEmpty else {
+            return nil
+        }
+
+        return mapped
+    }
+}

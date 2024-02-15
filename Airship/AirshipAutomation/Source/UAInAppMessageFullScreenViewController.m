@@ -190,6 +190,7 @@ NSString *const UAInAppMessageFullScreenViewNibName = @"UAInAppMessageFullScreen
 
     [self.fullScreenWindow addSubview:self.view];
     [self.fullScreenWindow makeKeyAndVisible];
+    self.fullScreenWindow.accessibilityViewIsModal = YES;
 
     self.buttonView = [UAInAppMessageButtonView buttonViewWithButtons:self.displayContent.buttons
                                                                layout:self.displayContent.buttonLayout
@@ -368,9 +369,9 @@ NSString *const UAInAppMessageFullScreenViewNibName = @"UAInAppMessageFullScreen
 }
 
 - (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator NS_EXTENSION_UNAVAILABLE("Method not available in app extensions") {
-    BOOL statusBarShowing = !([UIApplication sharedApplication].isStatusBarHidden);
 
-    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    UIWindow *window = [UAUtils mainWindow];
+    BOOL statusBarShowing = !window.windowScene.statusBarManager.isStatusBarHidden;
 
     // Black out the inset and compensate for excess vertical safe area when iPhone X is horizontal
     if (window.safeAreaInsets.top == 0 && window.safeAreaInsets.left > 0) {
@@ -436,11 +437,6 @@ NSString *const UAInAppMessageFullScreenViewNibName = @"UAInAppMessageFullScreen
     return (UAInAppMessageFullScreenContentLayoutType)content.contentLayout;
 }
 
-- (void)displayWindow:(void (^)(UAInAppMessageResolution * _Nonnull))completionHandler {
-    self.showCompletionHandler = completionHandler;
-    [self.fullScreenWindow makeKeyAndVisible];
-}
-
 - (void)observeSceneEvents API_AVAILABLE(ios(13.0)) {
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(sceneRemoved:)
@@ -454,15 +450,6 @@ NSString *const UAInAppMessageFullScreenViewNibName = @"UAInAppMessageFullScreen
     }
 }
 
-- (void)showWithCompletionHandler:(void (^)(UAInAppMessageResolution * _Nonnull))completionHandler {
-    if (self.isShowing) {
-        UA_LTRACE(@"In-app message resizable view has already been displayed");
-        return;
-    }
-
-    self.fullScreenWindow = [UAUtils createWindowWithRootViewController:self];
-    [self displayWindow:completionHandler];
-}
 
 - (void)showWithScene:(UIWindowScene *)scene completionHandler:(void (^)(UAInAppMessageResolution * _Nonnull))completionHandler {
     if (self.isShowing) {
@@ -470,8 +457,9 @@ NSString *const UAInAppMessageFullScreenViewNibName = @"UAInAppMessageFullScreen
         return;
     }
 
-    self.fullScreenWindow = [UAUtils createWindowWithScene:scene
-                                        rootViewController:self];
+    self.fullScreenWindow = [[UIWindow alloc] initWithWindowScene:scene];
+    self.fullScreenWindow.rootViewController = self;
+    
     [self observeSceneEvents];
 
 #if TARGET_OS_MACCATALYST
@@ -479,7 +467,8 @@ NSString *const UAInAppMessageFullScreenViewNibName = @"UAInAppMessageFullScreen
     self.previousKeyWindow = [UAInAppMessageUtils keyWindowFromScene:scene];
 #endif
 
-    [self displayWindow:completionHandler];
+    self.showCompletionHandler = completionHandler;
+    [self.fullScreenWindow makeKeyAndVisible];
 }
 
 - (nullable UAInAppMessageDismissButton *)createCloseButton {

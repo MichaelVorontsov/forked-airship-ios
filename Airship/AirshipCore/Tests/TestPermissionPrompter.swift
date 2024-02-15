@@ -2,24 +2,33 @@
 
 import Foundation
 
-@testable
-import AirshipCore
+@testable import AirshipCore
 
 class TestPermissionPrompter: PermissionPrompter {
 
-    var onPrompt: ((Permission, Bool, Bool, (PermissionStatus, PermissionStatus) -> Void) -> Void)?
+    var onPrompt:
+        (
+            (
+                AirshipPermission, Bool, Bool
+            ) ->
+            (AirshipPermissionStatus, AirshipPermissionStatus)
+        )?
 
     init() {}
 
-    func prompt(permission: Permission,
-                enableAirshipUsage: Bool,
-                fallbackSystemSettings: Bool,
-                completionHandler: @escaping (PermissionStatus, PermissionStatus) -> Void) {
+    func prompt(
+        permission: AirshipPermission,
+        enableAirshipUsage: Bool,
+        fallbackSystemSettings: Bool) async ->  (AirshipPermissionStatus, AirshipPermissionStatus) {
 
         if let onPrompt = self.onPrompt {
-            onPrompt(permission, enableAirshipUsage, fallbackSystemSettings, completionHandler)
+            return onPrompt(
+                permission,
+                enableAirshipUsage,
+                fallbackSystemSettings
+            )
         } else {
-            completionHandler(.notDetermined, .notDetermined)
+            return(.notDetermined, .notDetermined)
         }
     }
 }

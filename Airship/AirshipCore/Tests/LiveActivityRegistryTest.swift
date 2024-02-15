@@ -2,8 +2,7 @@
 
 import XCTest
 
-@testable
-import AirshipCore
+@testable import AirshipCore
 
 final class LiveActivityRegistryTest: XCTestCase {
 
@@ -20,7 +19,7 @@ final class LiveActivityRegistryTest: XCTestCase {
         )
     }
 
-    func testAdd() async throws  {
+    func testAdd() async throws {
         let activity = TestLiveActivity("foo id")
         await self.registry.addLiveActivity(activity, name: "foo")
 
@@ -39,7 +38,7 @@ final class LiveActivityRegistryTest: XCTestCase {
         )
 
         self.date.offset += 1.0
-        activity.isActive = false
+        activity.isUpdatable = false
 
         await assertUpdate(
             LiveActivityUpdate(
@@ -52,7 +51,7 @@ final class LiveActivityRegistryTest: XCTestCase {
         )
     }
 
-    func testReplace() async throws  {
+    func testReplace() async throws {
         let activityFirst = TestLiveActivity("first id")
         activityFirst.pushTokenString = "first token"
 
@@ -82,7 +81,7 @@ final class LiveActivityRegistryTest: XCTestCase {
         )
     }
 
-    func testRestore() async throws  {
+    func testRestore() async throws {
         var activity = TestLiveActivity("foo id")
         await self.registry.addLiveActivity(activity, name: "foo")
 
@@ -92,7 +91,6 @@ final class LiveActivityRegistryTest: XCTestCase {
             date: self.date
         )
         activity = TestLiveActivity("foo id")
-
 
         await self.registry.restoreTracking(activities: [activity])
         await self.registry.clearUntracked()
@@ -111,7 +109,7 @@ final class LiveActivityRegistryTest: XCTestCase {
         )
     }
 
-    func testCleareUntracked() async throws  {
+    func testCleareUntracked() async throws {
         let activity = TestLiveActivity("foo id")
         activity.pushTokenString = "neat"
         await self.registry.addLiveActivity(activity, name: "foo")
@@ -147,12 +145,12 @@ final class LiveActivityRegistryTest: XCTestCase {
             )
         )
     }
-    
-    func testCleareUntrackedMaxActionTime() async throws  {
+
+    func testCleareUntrackedMaxActionTime() async throws {
         let activity = TestLiveActivity("foo id")
         activity.pushTokenString = "neat"
         await self.registry.addLiveActivity(activity, name: "foo")
-        
+
         await assertUpdate(
             LiveActivityUpdate(
                 action: .set,
@@ -163,26 +161,127 @@ final class LiveActivityRegistryTest: XCTestCase {
                 startTimeMS: 0
             )
         )
-        
+
         // Recreate it
         self.registry = LiveActivityRegistry(
             dataStore: self.dataStore,
             date: self.date
         )
-        
-        self.date.offset += 288000.1 // 8 hours and .1 second
+
+        self.date.offset += 288000.1  // 8 hours and .1 second
         await self.registry.restoreTracking(activities: [])
         await self.registry.clearUntracked()
-        
+
         await assertUpdate(
             LiveActivityUpdate(
                 action: .remove,
                 id: "foo id",
                 name: "foo",
-                actionTimeMS: 288000000, // 8 hours
+                actionTimeMS: 288_000_000,  // 8 hours
                 startTimeMS: 0
             )
         )
+    }
+
+    @available(iOS 16.1, *)
+    public func testRegistrationStatusByID() async {
+        // notTracked
+        var updates = registry.registrationUpdates(name: nil, id: "some-id").makeAsyncIterator()
+        var status = await updates.next()
+        XCTAssertEqual(status, .notTracked)
+
+        let activity = TestLiveActivity("some-id")
+        await self.registry.addLiveActivity(activity, name: "some-name")
+
+        // pending
+        status = await updates.next()
+        XCTAssertEqual(status, .pending)
+
+        await self.registry.updatesProcessed(
+            updates: [
+                LiveActivityUpdate(action: .set, id: "some-id", name: "some-name", actionTimeMS: 100, startTimeMS: 100)
+            ]
+        )
+
+        // registered
+        status = await updates.next()
+        XCTAssertEqual(status, .registered)
+
+        // Register an activity over it
+        let otherActivity = TestLiveActivity("some-other-id")
+        await self.registry.addLiveActivity(otherActivity, name: "some-name")
+
+        // notTracked since its by ID and has been replaced
+        status = await updates.next()
+        XCTAssertEqual(status, .notTracked)
+    }
+
+    @available(iOS 16.1, *)
+    public func testRegistrationStatusByName() async {
+        // notTracked
+        var updates = registry.registrationUpdates(name: "some-name", id: nil).makeAsyncIterator()
+        var status = await updates.next()
+        XCTAssertEqual(status, .notTracked)
+
+        let activity = TestLiveActivity("some-id")
+        await self.registry.addLiveActivity(activity, name: "some-name")
+
+        // pending
+        status = await updates.next()
+        XCTAssertEqual(status, .pending)
+
+        await self.registry.updatesProcessed(
+            updates: [
+                LiveActivityUpdate(action: .set, id: "some-id", name: "some-name", actionTimeMS: 100, startTimeMS: 100)
+            ]
+        )
+
+        // registered
+        status = await updates.next()
+        XCTAssertEqual(status, .registered)
+
+        let otherActivity = TestLiveActivity("some-other-id")
+        await self.registry.addLiveActivity(otherActivity, name: "some-name")
+
+        // pending since its by name
+        status = await updates.next()
+        XCTAssertEqual(status, .pending)
+    }
+
+    @available(iOS 16.1, *)
+    public func testRegistrationStatus() async {
+        // Not tracked
+        var updates = registry.registrationUpdates(name: "some-name", id: nil).makeAsyncIterator()
+        var status = await updates.next()
+        XCTAssertEqual(status, .notTracked)
+
+        let activity = TestLiveActivity("some-id")
+        await self.registry.addLiveActivity(activity, name: "some-name")
+
+        // pending
+        status = await updates.next()
+        XCTAssertEqual(status, .pending)
+
+        await self.registry.updatesProcessed(
+            updates: [
+                LiveActivityUpdate(action: .set, id: "some-id", name: "some-name", actionTimeMS: 100, startTimeMS: 100)
+            ]
+        )
+
+        // registered
+        status = await updates.next()
+        XCTAssertEqual(status, .registered)
+    }
+
+
+    @available(iOS 16.1, *)
+    public func testStatusPending() async {
+        let activity = TestLiveActivity("foo id")
+        await self.registry.addLiveActivity(activity, name: "foo")
+
+        var updates = registry.registrationUpdates(name: "foo", id: nil).makeAsyncIterator()
+        let status = await updates.next()
+        XCTAssertEqual(status, .pending)
     }
 
     private func assertUpdate(
@@ -190,18 +289,17 @@ final class LiveActivityRegistryTest: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        let next = await self.registry.updates.first(where: { _ in true } )
+        let next = await self.registry.updates.first(where: { _ in true })
         XCTAssertEqual(update, next, file: file, line: line)
     }
 }
 
-
 /// Tried to match as closely as I coudl to the real object
-fileprivate class TestLiveActivity: LiveActivity {
+private final class TestLiveActivity: LiveActivityProtocol, @unchecked Sendable {
     let id: String
-    var isActive: Bool = true {
+    var isUpdatable: Bool = true {
         didSet {
-            statusUpdatesContinuation.yield(isActive)
+            statusUpdatesContinuation.yield(isUpdatable)
         }
     }
     var pushTokenString: String? {
@@ -231,11 +329,11 @@ fileprivate class TestLiveActivity: LiveActivity {
         self.statusUpdatesContinuation = statusUpdateEscapee!
     }
 
-    func track(tokenUpdates: @escaping (String) async -> Void) async {
-        guard self.isActive else {
+    func track(tokenUpdates: @Sendable @escaping (String) async -> Void) async {
+        guard self.isUpdatable else {
             return
         }
-        
+
         let task = Task {
             for await token in self.pushTokenUpdates {
                 try Task.checkCancellation()
@@ -255,4 +353,3 @@ fileprivate class TestLiveActivity: LiveActivity {
         }
     }
 }
-

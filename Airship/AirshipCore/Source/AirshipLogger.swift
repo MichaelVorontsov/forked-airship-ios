@@ -8,108 +8,140 @@ import Foundation
 /// - Note: For internal use only. :nodoc:
 public class AirshipLogger {
 
-    static var logLevel: LogLevel = .error
+    static var logLevel: AirshipLogLevel = .error
     static var logHandler: AirshipLogHandler = DefaultLogHandler()
 
-    public static func trace(_ message: @autoclosure () -> String,
-                             fileID: String = #fileID,
-                             line: UInt = #line,
-                             function: String = #function) {
+    public static func trace(
+        _ message: @autoclosure () -> String,
+        fileID: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
 
-        log(logLevel: LogLevel.trace,
+        log(
+            logLevel: AirshipLogLevel.verbose,
             message: message(),
             fileID: fileID,
             line: line,
-            function: function)
+            function: function
+        )
     }
 
-    public static func debug(_ message: @autoclosure () -> String,
-                             fileID: String = #fileID,
-                             line: UInt = #line,
-                             function: String = #function) {
+    public static func debug(
+        _ message: @autoclosure () -> String,
+        fileID: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
 
-        log(logLevel: LogLevel.debug,
+        log(
+            logLevel: AirshipLogLevel.debug,
             message: message(),
             fileID: fileID,
             line: line,
-            function: function)
+            function: function
+        )
     }
 
-    public static func info(_ message: @autoclosure () -> String,
-                            fileID: String = #fileID,
-                            line: UInt = #line,
-                            function: String = #function) {
-        log(logLevel: LogLevel.info,
+    public static func info(
+        _ message: @autoclosure () -> String,
+        fileID: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
+        log(
+            logLevel: AirshipLogLevel.info,
             message: message(),
             fileID: fileID,
             line: line,
-            function: function)
+            function: function
+        )
     }
 
-    public static func importantInfo(_ message: String,
-                                     fileID: String = #fileID,
-                                     line: UInt = #line,
-                                     function: String = #function) {
-        log(logLevel: LogLevel.info,
+    public static func importantInfo(
+        _ message: String,
+        fileID: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
+        log(
+            logLevel: AirshipLogLevel.info,
             message: message,
             fileID: fileID,
             line: line,
             function: function,
-            skipLogLevelCheck: true)
+            skipLogLevelCheck: true
+        )
     }
 
-    public static func warn(_ message: @autoclosure () -> String,
-                            fileID: String = #fileID,
-                            line: UInt = #line,
-                            function: String = #function) {
-        log(logLevel: LogLevel.warn,
+    public static func warn(
+        _ message: @autoclosure () -> String,
+        fileID: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
+        log(
+            logLevel: AirshipLogLevel.warn,
             message: message(),
             fileID: fileID,
             line: line,
-            function: function)
+            function: function
+        )
     }
 
-    public static func error(_ message: @autoclosure () -> String,
-                             fileID: String = #fileID,
-                             line: UInt = #line,
-                             function: String = #function) {
+    public static func error(
+        _ message: @autoclosure () -> String,
+        fileID: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
 
-        log(logLevel: LogLevel.error,
+        log(
+            logLevel: AirshipLogLevel.error,
             message: message(),
             fileID: fileID,
             line: line,
-            function: function)
+            function: function
+        )
     }
 
-    public static func impError(_ message: @autoclosure () -> String,
-                                fileID: String = #fileID,
-                                line: UInt = #line,
-                                function: String = #function) {
+    public static func impError(
+        _ message: @autoclosure () -> String,
+        fileID: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
 
-        log(logLevel: LogLevel.error,
+        log(
+            logLevel: AirshipLogLevel.error,
             message: "🚨Airship Implementation Error🚨: \(message())",
             fileID: fileID,
             line: line,
-            function: function)
+            function: function
+        )
     }
 
-    static func log(logLevel: LogLevel,
-                    message: @autoclosure () -> String,
-                    fileID: String,
-                    line: UInt,
-                    function: String,
-                    skipLogLevelCheck: Bool = false) {
+    static func log(
+        logLevel: AirshipLogLevel,
+        message: @autoclosure () -> String,
+        fileID: String,
+        line: UInt,
+        function: String,
+        skipLogLevelCheck: Bool = false
+    ) {
 
         guard self.logLevel != .none, self.logLevel != .undefined else {
             return
         }
 
-        if (skipLogLevelCheck || self.logLevel.rawValue >= logLevel.rawValue) {
-            logHandler.log(logLevel: logLevel,
-                           message: message(),
-                           fileID: fileID,
-                           line: line,
-                           function: function)
+        if skipLogLevelCheck || self.logLevel.rawValue >= logLevel.rawValue {
+            logHandler.log(
+                logLevel: logLevel,
+                message: message(),
+                fileID: fileID,
+                line: line,
+                function: function
+            )
         }
     }
 }

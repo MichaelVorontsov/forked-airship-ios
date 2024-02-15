@@ -45,22 +45,74 @@
  * Test the default allow list accepts Airship URLs.
  */
 - (void)testDefaultURLAllowList {
-    UAURLAllowList *URLAllowList = [UAURLAllowList allowListWithConfig:self.config];
+    UAConfig *config = [[UAConfig alloc] init];
+    config.inProduction = NO;
+    config.developmentAppKey = @"test-app-key";
+    config.developmentAppSecret = @"test-app-secret";
+    config.URLAllowList = @[];
+
+    UARuntimeConfig *runtimeConfig = [[UARuntimeConfig alloc] initWithConfig:config dataStore:self.dataStore];
+
+    UAURLAllowList *URLAllowList = [UAURLAllowList allowListWithConfig:runtimeConfig];
 
     for (NSNumber *number in self.scopes) {
         UInt8 scope = number.intValue;
 
         XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://device-api.urbanairship.com/api/user/"] scope:scope]);
 
-        // Starbucks
-        XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://sbux-dl.urbanairship.com/binary/token/"] scope:scope]);
+        // Landing Page
+        XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://dl.urbanairship.com/aaa/message_id"] scope:scope]);
+
+        // EU
+        XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://device-api.asnapieu.com/api/user/"] scope:scope]);
+        XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://dl.asnapieu.com/aaa/message_id"] scope:scope]);
+    }
+
+    // YouTube
+    XCTAssertFalse([URLAllowList isAllowed:[NSURL URLWithString:@"https://*.youtube.com"] scope:UAURLAllowListScopeOpenURL]);
+    XCTAssertFalse([URLAllowList isAllowed:[NSURL URLWithString:@"https://*.youtube.com"] scope:UAURLAllowListScopeJavaScriptInterface]);
+    XCTAssertFalse([URLAllowList isAllowed:[NSURL URLWithString:@"https://*.youtube.com"] scope:UAURLAllowListScopeAll]);
+
+    // sms
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"sms:+18675309?body=Hi%20you"] scope:UAURLAllowListScopeOpenURL]);
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"sms:8675309"] scope:UAURLAllowListScopeOpenURL]);
+
+    // tel
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"tel:+18675309"] scope:UAURLAllowListScopeOpenURL]);
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"tel:867-5309"] scope:UAURLAllowListScopeOpenURL]);
+
+    // email
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"mailto:name@example.com?subject=The%20subject%20of%20the%20mail"] scope:UAURLAllowListScopeOpenURL]);
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"mailto:name@example.com"] scope:UAURLAllowListScopeOpenURL]);
+
+    // System settings
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:UIApplicationOpenSettingsURLString] scope:UAURLAllowListScopeOpenURL]);
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"app-settings:"] scope:UAURLAllowListScopeOpenURL]);
+
+    // Reject others
+    XCTAssertFalse([URLAllowList isAllowed:[NSURL URLWithString:@"https://some-random-url.com"] scope:UAURLAllowListScopeOpenURL]);
+}
+
+- (void)testDefaultURLAllowListNoOpenScopeSet {
+    UAConfig *config = [[UAConfig alloc] init];
+    config.inProduction = NO;
+    config.developmentAppKey = @"test-app-key";
+    config.developmentAppSecret = @"test-app-secret";
+
+    UARuntimeConfig *runtimeConfig  = [[UARuntimeConfig alloc] initWithConfig:config dataStore:self.dataStore];
+
+    UAURLAllowList *URLAllowList = [UAURLAllowList allowListWithConfig:runtimeConfig];
+
+    for (NSNumber *number in self.scopes) {
+        UInt8 scope = number.intValue;
+
+        XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://device-api.urbanairship.com/api/user/"] scope:scope]);
 
         // Landing Page
         XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://dl.urbanairship.com/aaa/message_id"] scope:scope]);
 
         // EU
         XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://device-api.asnapieu.com/api/user/"] scope:scope]);
-        XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://sbux-dl.asnapieu.com/binary/token/"] scope:scope]);
         XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://dl.asnapieu.com/aaa/message_id"] scope:scope]);
     }
 
@@ -84,6 +136,10 @@
     // System settings
     XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:UIApplicationOpenSettingsURLString] scope:UAURLAllowListScopeOpenURL]);
     XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"app-settings:"] scope:UAURLAllowListScopeOpenURL]);
+
+    // Any
+    XCTAssertTrue([URLAllowList isAllowed:[NSURL URLWithString:@"https://some-random-url.com"] scope:UAURLAllowListScopeOpenURL]);
+
 }
 
 /**
@@ -105,14 +161,6 @@
     XCTAssertFalse([self.URLAllowList addEntry:@"*://*what"]);
 }
 
-/**
- * Test international URLs.
- */
-- (void)testInternationalDomainsNotAllowed {
-    //NSURL can't handle these
-    XCTAssertFalse([self.URLAllowList addEntry:@"*://ουτοπία.δπθ.gr"]);
-    XCTAssertFalse([self.URLAllowList addEntry:@"*://müller.com"]);
-}
 
 /**
  * Test wild card scheme accepts http and https schemes.
@@ -152,18 +200,6 @@
     // Accept
     XCTAssertTrue([self.URLAllowList isAllowed:[NSURL URLWithString:@"https://www.urbanairship.com"]]);
     XCTAssertTrue([self.URLAllowList isAllowed:[NSURL URLWithString:@"file:///asset.html"]]);
-}
-
-/**
- * Test regular expression on the host are treated as literals.
- */
-- (void)testRegexInHost {
-    XCTAssertTrue([self.URLAllowList addEntry:@"w+.+://[a-z,A-Z]+"]);
-
-    XCTAssertFalse([self.URLAllowList isAllowed:[NSURL URLWithString:@"wwww://urbanairship"]]);
-
-    // It should match on a host that is equal to [a-z,A-Z]+
-    XCTAssertTrue([self.URLAllowList isAllowed:[NSURL URLWithString:@"w+.+://[a-z,A-Z]%2B"]]);
 }
 
 /**
@@ -397,7 +433,7 @@
     XCTAssertFalse([self.URLAllowList isAllowed:nonMatchingURL scope:scope]);
 
     // Enable URL allow list delegate
-    [[[self.mockURLAllowListDelegate stub] andDo:^(NSInvocation *invocation) {
+    (void)[[[self.mockURLAllowListDelegate stub] andDo:^(NSInvocation *invocation) {
         NSURL *url;
         BOOL returnValue;
         [invocation getArgument:&url atIndex:2];

@@ -2,171 +2,171 @@
 
 import XCTest
 
-@testable
-import AirshipCore
+@testable import AirshipCore
 
 class EnableFeatureActionTest: XCTestCase {
 
     let testPrompter = TestPermissionPrompter()
-    let testLocationProvider = TestLocationProvider()
     var action: EnableFeatureAction!
 
     override func setUpWithError() throws {
-        self.action = EnableFeatureAction(permissionPrompter: { return self.testPrompter },
-                                          location: { return self.testLocationProvider })
+        self.action = EnableFeatureAction { return self.testPrompter }
     }
 
-    func testAcceptsArguments() throws {
+    func testAcceptsArguments() async throws {
         let validSituations = [
-            Situation.foregroundInteractiveButton,
-            Situation.launchedFromPush,
-            Situation.manualInvocation,
-            Situation.webViewInvocation,
-            Situation.automation,
-            Situation.foregroundPush
+            ActionSituation.foregroundInteractiveButton,
+            ActionSituation.launchedFromPush,
+            ActionSituation.manualInvocation,
+            ActionSituation.webViewInvocation,
+            ActionSituation.automation,
+            ActionSituation.foregroundPush,
         ]
 
         let rejectedSituations = [
-            Situation.backgroundPush,
-            Situation.backgroundInteractiveButton
+            ActionSituation.backgroundPush,
+            ActionSituation.backgroundInteractiveButton,
         ]
 
-        validSituations.forEach { (situation) in
-            let args = ActionArguments(value: EnableFeatureAction.locationActionValue, with: situation)
-            XCTAssertTrue(self.action.acceptsArguments(args))
+
+        for situation in validSituations {
+            let args = ActionArguments(
+                string: EnableFeatureAction.locationActionValue,
+                situation: situation
+            )
+            let result = await self.action.accepts(arguments: args)
+            XCTAssertTrue(result)
         }
 
-        rejectedSituations.forEach { (situation) in
-            let args = ActionArguments(value: EnableFeatureAction.locationActionValue, with: situation)
-            XCTAssertFalse(self.action.acceptsArguments(args))
+        for situation in rejectedSituations {
+            let args = ActionArguments(
+                string: EnableFeatureAction.locationActionValue,
+                situation: situation
+            )
+            let result = await self.action.accepts(arguments: args)
+            XCTAssertFalse(result)
         }
     }
 
-    func testLocation() throws {
-        let arguments = ActionArguments(value: EnableFeatureAction.locationActionValue,
-                                        with: .manualInvocation)
+    func testLocation() async throws {
+        let arguments = ActionArguments(
+            string: EnableFeatureAction.locationActionValue,
+            situation: .manualInvocation
+        )
 
         let prompted = self.expectation(description: "Prompted")
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
             XCTAssertEqual(permission, .location)
             XCTAssertTrue(enableAirshipUsage)
             XCTAssertTrue(fallbackSystemSetting)
-            completionHandler(.notDetermined, .notDetermined)
             prompted.fulfill()
+            return (.notDetermined, .notDetermined)
         }
 
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { result in
-            XCTAssertNil(result.value)
-            actionFinished.fulfill()
-        }
-
-        self.wait(for: [actionFinished, prompted], timeout: 1)
+      
+        _ = try await self.action.perform(arguments: arguments)
+        await self.fulfillmentCompat(of: [prompted], timeout: 10)
     }
 
-    func testBackgroundLocation() throws {
-        let arguments = ActionArguments(value: EnableFeatureAction.backgroundLocationActionValue,
-                                        with: .manualInvocation)
+    func testBackgroundLocation() async throws {
+        let arguments = ActionArguments(
+            string: EnableFeatureAction.backgroundLocationActionValue,
+            situation: .manualInvocation
+        )
 
         let prompted = self.expectation(description: "Prompted")
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
             XCTAssertEqual(permission, .location)
             XCTAssertTrue(enableAirshipUsage)
             XCTAssertTrue(fallbackSystemSetting)
-            completionHandler(.notDetermined, .notDetermined)
             prompted.fulfill()
+            return (.notDetermined, .notDetermined)
         }
 
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { result in
-            XCTAssertNil(result.value)
-            actionFinished.fulfill()
-        }
-
-        self.wait(for: [actionFinished, prompted], timeout: 1)
-        XCTAssertTrue(self.testLocationProvider.isBackgroundLocationUpdatesAllowed)
+        _ = try await self.action.perform(arguments: arguments)
+        await self.fulfillmentCompat(of: [prompted], timeout: 10)
     }
 
-
-    func testNotifications() throws {
-        let arguments = ActionArguments(value: EnableFeatureAction.userNotificationsActionValue,
-                                        with: .manualInvocation)
+    func testNotifications() async throws {
+        let arguments = ActionArguments(
+            string: EnableFeatureAction.userNotificationsActionValue,
+            situation: .manualInvocation
+        )
 
         let prompted = self.expectation(description: "Prompted")
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
             XCTAssertEqual(permission, .displayNotifications)
             XCTAssertTrue(enableAirshipUsage)
             XCTAssertTrue(fallbackSystemSetting)
-            completionHandler(.notDetermined, .notDetermined)
             prompted.fulfill()
+            return (.notDetermined, .notDetermined)
         }
 
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { result in
-            XCTAssertNil(result.value)
-            actionFinished.fulfill()
-        }
-
-        self.wait(for: [actionFinished, prompted], timeout: 1)
+        _ = try await self.action.perform(arguments: arguments)
+        await self.fulfillmentCompat(of: [prompted], timeout: 10)
     }
 
+    func testInvalidArgument() async throws {
+        let arguments = ActionArguments(
+            string: "invalid",
+            situation: .manualInvocation
+        )
 
-    func testInvalidArgument() throws {
-        let arguments = ActionArguments(value: "invalid", with: .manualInvocation)
-
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
             XCTFail()
+            return (.notDetermined, .notDetermined)
         }
 
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { result in
-            XCTAssertNotNil(result.error)
-            actionFinished.fulfill()
-        }
-
-        self.wait(for: [actionFinished], timeout: 1)
+        do {
+            _ = try await self.action.perform(arguments: arguments)
+            XCTFail("should throw")
+        } catch {}
     }
 
-    func testResultReceiver() throws {
+    func testResultReceiver() async throws {
         let resultReceived = self.expectation(description: "Result received")
 
-        let resultRecevier: (Permission, PermissionStatus, PermissionStatus) -> Void = { permission, start, end in
-            XCTAssertEqual(.notDetermined, start)
-            XCTAssertEqual(.granted, end)
-            XCTAssertEqual(.location, permission)
-            resultReceived.fulfill()
+        let resultRecevier:
+         @Sendable (AirshipPermission, AirshipPermissionStatus, AirshipPermissionStatus) -> Void = {
+                permission,
+                start,
+                end in
+                XCTAssertEqual(.notDetermined, start)
+                XCTAssertEqual(.granted, end)
+                XCTAssertEqual(.location, permission)
+                resultReceived.fulfill()
+            }
+
+        let metadata = [
+            PromptPermissionAction.resultReceiverMetadataKey: resultRecevier
+        ]
+
+        let arguments = ActionArguments(
+            string: EnableFeatureAction.locationActionValue,
+            situation: .manualInvocation,
+            metadata: metadata
+        )
+        
+        testPrompter.onPrompt = {
+            permission,
+            enableAirshipUsage,
+            fallbackSystemSetting in
+            return (.notDetermined, .granted)
         }
-
-        let metadata = [PromptPermissionAction.resultReceiverMetadataKey: resultRecevier]
-
-        let arguments = ActionArguments(value: EnableFeatureAction.locationActionValue,
-                                        with: .manualInvocation,
-                                        metadata: metadata)
-
-        testPrompter.onPrompt = { permission, enableAirshipUsage, fallbackSystemSetting, completionHandler in
-            completionHandler(.notDetermined, .granted)
-        }
-
-        let actionFinished = self.expectation(description: "Action finished")
-        self.action.perform(with: arguments) { _ in
-            actionFinished.fulfill()
-        }
-
-        self.wait(for: [actionFinished, resultReceived], timeout: 1)
+      
+        _ = try await self.action.perform(arguments: arguments)
+        await self.fulfillmentCompat(of: [resultReceived], timeout: 10)
     }
 }
-
-class TestLocationProvider: NSObject, UALocationProvider {
-    var isLocationUpdatesEnabled = false
-    var isBackgroundLocationUpdatesAllowed = false
-
-    func isLocationOptedIn() -> Bool {
-        return false
-    }
-
-    func isLocationDeniedOrRestricted() -> Bool {
-        return false
-    }
-}
-
-

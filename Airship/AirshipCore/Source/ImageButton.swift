@@ -5,22 +5,23 @@ import SwiftUI
 import Combine
 
 /// Image Button view.
-@available(iOS 13.0.0, tvOS 13.0, *)
 struct ImageButton : View {
  
     /// Image Button model.
     let model: ImageButtonModel
   
-    /// View constriants.
+    /// View constraints.
     let constraints: ViewConstraints
   
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.layoutState) var layoutState
+    @EnvironmentObject var thomasEnvironment: ThomasEnvironment
 
     @ViewBuilder
     var body: some View {
         AirshipButton(
             identifier: self.model.identifier,
+            reportingMetadata: self.model.reportingMetadata?.unWrap(),
             description: self.model.contentDescription ?? self.model.identifier,
             clickBehaviors: self.model.clickBehaviors,
             actions: self.model.actions
@@ -34,7 +35,9 @@ struct ImageButton : View {
         .common(self.model)
         .environment(
             \.layoutState,
-             layoutState.override(buttonState: ButtonState(identifier: self.model.identifier))
+             layoutState.override(
+                buttonState: ButtonState(identifier: self.model.identifier)
+             )
         )
     }
     
@@ -42,14 +45,19 @@ struct ImageButton : View {
     private func makeInnerButton() -> some View {
         switch(model.image) {
         case .url(let model):
-            AirshipAsyncImage(url: model.url) { image, _ in
-                image
-                    .renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-            } placeholder: {
-                AirshipProgressView()
-            }
+            ThomasAsyncImage(
+                url: model.url,
+                imageLoader: thomasEnvironment.imageLoader,
+                image: { image, _ in
+                    image
+                        .renderingMode(.original)
+                        .resizable()
+                        .scaledToFit()
+                },
+                placeholder: {
+                    AirshipProgressView()
+                }
+            )
         case .icon(let model):
             Icons.icon(model: model, colorScheme: colorScheme)
         }

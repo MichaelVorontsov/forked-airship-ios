@@ -187,7 +187,7 @@ static double const DefaultResizableViewAnimationDuration = 0.2;
 
 - (BOOL)isFullScreen {
     if (self.allowFullScreenDisplay) {
-        if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
             return self.extendFullScreenLargeDevice;
         } else {
             return YES;
@@ -328,11 +328,6 @@ static double const DefaultResizableViewAnimationDuration = 0.2;
 #pragma mark -
 #pragma mark Core Functionality
 
-- (void)displayWindow:(void (^)(UAInAppMessageResolution * _Nonnull))completionHandler {
-    self.showCompletionHandler = completionHandler;
-    [self.topWindow makeKeyAndVisible];
-}
-
 - (void)observeSceneEvents API_AVAILABLE(ios(13.0)) {
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(sceneRemoved:)
@@ -346,24 +341,15 @@ static double const DefaultResizableViewAnimationDuration = 0.2;
     }
 }
 
-- (void)showWithCompletionHandler:(void (^)(UAInAppMessageResolution * _Nonnull))completionHandler {
-    if (self.isShowing) {
-        UA_LTRACE(@"In-app message resizable view has already been displayed");
-        return;
-    }
-
-    self.topWindow = [UAUtils createWindowWithRootViewController:self];
-    [self displayWindow:completionHandler];
-}
-
 - (void)showWithScene:(UIWindowScene *)scene completionHandler:(void (^)(UAInAppMessageResolution * _Nonnull))completionHandler {
     if (self.isShowing) {
         UA_LTRACE(@"In-app message resizable view has already been displayed");
         return;
     }
 
-    self.topWindow = [UAUtils createWindowWithScene:scene
-                                 rootViewController:self];
+    self.topWindow = [[UIWindow alloc] initWithWindowScene:scene];
+    self.topWindow.rootViewController = self;
+    self.topWindow.accessibilityViewIsModal = YES;
     [self observeSceneEvents];
 
     #if TARGET_OS_MACCATALYST
@@ -371,7 +357,8 @@ static double const DefaultResizableViewAnimationDuration = 0.2;
     self.previousKeyWindow = [UAInAppMessageUtils keyWindowFromScene:scene];
     #endif
 
-    [self displayWindow:completionHandler];
+    self.showCompletionHandler = completionHandler;
+    [self.topWindow makeKeyAndVisible];
 }
 
 - (void)tearDown {

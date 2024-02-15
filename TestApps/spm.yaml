@@ -12,13 +12,11 @@ targets:
       - package: Airship
         product: AirshipMessageCenter
       - package: Airship
-        product: AirshipLocation
-      - package: Airship
-        product: AirshipExtendedActions
+        product: AirshipPreferenceCenter
       - package: Airship
         product: AirshipAutomation
       - package: Airship
-        product: AirshipAccengage
+        product: AirshipDebug
       - target: TestContentExtension
       - target: TestServiceExtension
   TestContentExtension:

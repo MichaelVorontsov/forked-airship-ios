@@ -4,13 +4,15 @@ import UIKit
 
 #if !os(watchOS)
 
-/**
- * - Note: For internal use only. :nodoc:
- */
+/// - Note: For internal use only. :nodoc:
 @objc(UAViewUtils)
-public class ViewUtils : NSObject {
+public class ViewUtils: NSObject {
     @objc
-    public class func applyContainerConstraints(toContainer container: UIView?, containedView contained: UIView?) {
+    @MainActor
+    public class func applyContainerConstraints(
+        toContainer container: UIView?,
+        containedView contained: UIView?
+    ) {
         guard container != nil && contained != nil else {
             AirshipLogger.debug("Attempted to constrain a nil view")
             return
@@ -29,7 +31,8 @@ public class ViewUtils : NSObject {
                 toItem: container,
                 attribute: .top,
                 multiplier: 1.0,
-                constant: 0.0)
+                constant: 0.0
+            )
         }
 
         // The container and contained are reversed here to allow positive constant increases to result in expected padding
@@ -42,7 +45,8 @@ public class ViewUtils : NSObject {
                 toItem: contained,
                 attribute: .bottom,
                 multiplier: 1.0,
-                constant: 0.0)
+                constant: 0.0
+            )
         }
 
         // The container and contained are reversed here to allow positive constant increases to result in expected padding
@@ -55,7 +59,8 @@ public class ViewUtils : NSObject {
                 toItem: contained,
                 attribute: .trailing,
                 multiplier: 1.0,
-                constant: 0.0)
+                constant: 0.0
+            )
         }
 
         var leadingConstraint: NSLayoutConstraint? = nil
@@ -67,7 +72,8 @@ public class ViewUtils : NSObject {
                 toItem: container,
                 attribute: .leading,
                 multiplier: 1.0,
-                constant: 0.0)
+                constant: 0.0
+            )
         }
 
         topConstraint?.isActive = true

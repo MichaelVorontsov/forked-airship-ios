@@ -1,30 +1,36 @@
 import Foundation
+import Combine
+@testable import AirshipCore
 
-@testable
-import AirshipCore
+class TestChannelRegistrar:  ChannelRegistrarProtocol, @unchecked Sendable {
 
-@objc(UATestChannelRegistrar)
-public class TestChannelRegistrar : NSObject, ChannelRegistrarProtocol {
-    @objc
-    public var delegate: ChannelRegistrarDelegate?
+    let updatesSubject = PassthroughSubject<ChannelRegistrationUpdate, Never>()
+    public var updatesPublisher: AnyPublisher<ChannelRegistrationUpdate, Never> {
+        return updatesSubject.eraseToAnyPublisher()
+    }
+
+    public var extenders: [(ChannelRegistrationPayload) async -> ChannelRegistrationPayload] = []
     
-    @objc
+    public var channelPayload: ChannelRegistrationPayload {
+        get async {
+            var result: ChannelRegistrationPayload = ChannelRegistrationPayload()
+
+            for extender in extenders {
+                result = await extender(result)
+            }
+            return result
+        }
+    }
+
+    public func addChannelRegistrationExtender(extender: @escaping (AirshipCore.ChannelRegistrationPayload) async -> AirshipCore.ChannelRegistrationPayload) {
+        self.extenders.append(extender)
+    }
+
     public var channelID: String?
-    
-    @objc
+
     public var registerCalled = false
-    
-    @objc
-    public var fullRegistrationCalled = false
-    
-    
+
     public func register(forcefully: Bool) {
         registerCalled = true
     }
-    
-    public func performFullRegistration() {
-        fullRegistrationCalled = true
-    }
-    
-    
 }

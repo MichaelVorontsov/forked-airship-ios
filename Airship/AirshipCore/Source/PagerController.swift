@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 struct PagerController: View {
     let model: PagerControllerModel
     let constraints: ViewConstraints
@@ -13,7 +13,7 @@ struct PagerController: View {
         self.constraints = constraints
         self.pagerState = PagerState(identifier: model.identifier)
     }
-    
+
     var body: some View {
         ViewFactory.createView(model: self.model.view, constraints: constraints)
             .constraints(constraints)
@@ -21,6 +21,9 @@ struct PagerController: View {
             .border(self.model.border)
             .common(self.model)
             .environmentObject(pagerState)
-            .environment(\.layoutState, layoutState.override(pagerState: pagerState))
+            .environment(
+                \.layoutState,
+                layoutState.override(pagerState: pagerState)
+            )
     }
 }

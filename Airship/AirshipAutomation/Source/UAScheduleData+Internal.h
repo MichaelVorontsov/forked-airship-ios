@@ -186,6 +186,33 @@ extern NSUInteger const UAScheduleDataVersion;
 @property (nullable, nonatomic, copy) NSArray<NSString *> *frequencyConstraintIDs;
 
 /**
+ * The trigger time.
+ */
+@property (nullable, nonatomic, strong) NSDate *triggeredTime;
+
+/**
+ * Message type that will be used for hold out groups evaluation
+ */
+@property (nonatomic, nullable, copy) NSString *messageType;
+
+/**
+ * Indicates if could be in hold out groups
+ */
+@property (nullable, nonatomic, strong) NSNumber *bypassHoldoutGroups;
+
+/**
+ * Indicates if could be in hold out groups
+ */
+@property (nullable, nonatomic, strong) NSDate *isNewUserEvaluationDate;
+
+/**
+ * Product id is used for reporting metered usage
+ */
+@property (nullable, nonatomic, copy) NSString *productId;
+
+
+
+/**
  * Whether the schedule has exceeded its limit.
  */
 - (BOOL)isOverLimit;

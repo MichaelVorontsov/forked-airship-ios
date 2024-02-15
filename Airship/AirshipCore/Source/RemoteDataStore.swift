@@ -1,76 +1,123 @@
 /* Copyright Airship and Contributors */
+
 import CoreData
 
-// NOTE: For internal use only. :nodoc:
-@objc(UARemoteDataStore)
-public class RemoteDataStore : NSObject {
+final class RemoteDataStore: Sendable {
     
     private static let remoteDataEntity = "UARemoteDataStorePayload"
-
+    
     private let coreData: UACoreData
-
-    @objc
+    private let inMemory: Bool
+    
     public init(storeName: String, inMemory: Bool) {
-        let modelURL = AirshipCoreResources.bundle.url(forResource: "UARemoteData", withExtension: "momd")
-        self.coreData = UACoreData(modelURL: modelURL!, inMemory: inMemory, stores: [storeName])
+        self.inMemory = inMemory
+        let modelURL = AirshipCoreResources.bundle.url(
+            forResource: "UARemoteData",
+            withExtension: "momd"
+        )
+        self.coreData = UACoreData(
+            modelURL: modelURL!,
+            inMemory: inMemory,
+            stores: [storeName]
+        )
     }
-
-    @objc
-    public convenience init(storeName: String) {
+    
+    convenience init(storeName: String) {
         self.init(storeName: storeName, inMemory: false)
     }
 
-    @objc
-    public func fetchRemoteDataFromCache(predicate: NSPredicate?, completionHandler: @escaping ([RemoteDataPayload]) -> Void) {
-        self.coreData.safePerform { isSafe, context in
-            guard isSafe else {
-                completionHandler([])
-                return
-            }
-        
-            let request = NSFetchRequest<NSFetchRequestResult>(entityName: RemoteDataStore.remoteDataEntity)
-            request.predicate = predicate
+    func hasData() async throws -> Bool {
+        return try await self.coreData.performWithResult { context in
+            let request = NSFetchRequest<NSFetchRequestResult>(
+                entityName: RemoteDataStore.remoteDataEntity
+            )
+            return try context.count(for: request) > 0
+        }
+    }
 
-            do {
-                let result = try context.fetch(request) as? [RemoteDataStorePayload] ?? []
-                let payloads = result.compactMap {
-                    return RemoteDataPayload(type: $0.type, timestamp: $0.timestamp, data: $0.data, metadata: $0.metadata)
+    public func fetchRemoteDataFromCache(
+        types: [String]? = nil
+    ) async throws -> [RemoteDataPayload] {
+
+
+        AirshipLogger.trace(
+            "Fetching remote data from cache with types: \(String(describing: types))"
+        )
+
+        return try await self.coreData.performWithResult { context in
+            let request = NSFetchRequest<NSFetchRequestResult>(
+                entityName: RemoteDataStore.remoteDataEntity
+            )
+
+            if let types = types {
+                let predicate = AirshipCoreDataPredicate(format: "(type IN %@)", args: [types])
+                request.predicate = predicate.toNSPredicate()
+            }
+
+            let result = try context.fetch(request) as? [RemoteDataStorePayload] ?? []
+            return result.compactMap {
+
+                var remoteDataInfo: RemoteDataInfo? = nil
+                do {
+                    if let data = $0.remoteDataInfo {
+                        remoteDataInfo = try RemoteDataInfo.fromJSON(data: data)
+                    }
+                } catch {
+                    AirshipLogger.error("Unable to parse remote-data info from data \(error)")
                 }
-                
-                completionHandler(payloads)
-            } catch {
-                AirshipLogger.error("Error executing fetch request \(error)")
-                completionHandler([])
+
+                var data: AirshipJSON = AirshipJSON.null
+
+
+                do {
+                    data = try AirshipJSON.wrap($0.data)
+                } catch {
+                    AirshipLogger.error("Unable to parse remote-data data \(error)")
+                }
+
+
+                return RemoteDataPayload(
+                    type: $0.type,
+                    timestamp: $0.timestamp,
+                    data: data,
+                    remoteDataInfo: remoteDataInfo
+                )
             }
         }
     }
 
-    @objc
-    public func overwriteCachedRemoteData(_ payloads: [RemoteDataPayload], completionHandler: @escaping (Bool) -> Void) {
-        self.coreData.safePerform { isSafe, context in
-            guard isSafe else {
-                completionHandler(false)
-                return
-            }
+
+    public func clear() async throws {
+        try await self.coreData.perform({ context in
+            try self.deleteAll(context: context)
+            UACoreData.safeSave(context)
+        })
+    }
+
+    public func overwriteCachedRemoteData(
+        _ payloads: [RemoteDataPayload]
+    ) async throws {
         
-            do {
-                try self.deleteAll(context: context)
-                UACoreData.safeSave(context)
-                payloads.forEach {
-                    self.addPayload($0, context: context)
-                }
-                completionHandler(UACoreData.safeSave(context))
-            } catch {
-                AirshipLogger.error("Failed to overwrite payloads \(error).")
-                completionHandler(false)
+        try await self.coreData.perform({ context in
+            try self.deleteAll(context: context)
+            UACoreData.safeSave(context)
+            payloads.forEach {
+                self.addPayload($0, context: context)
             }
-        }
+            UACoreData.safeSave(context)
+        })
+        
     }
     
-    private func deleteAll(context: NSManagedObjectContext) throws {
-        let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: RemoteDataStore.remoteDataEntity)
-
-        if (coreData.inMemory) {
+    private func deleteAll(
+        context: NSManagedObjectContext
+    ) throws {
+        
+        let fetchRequest = NSFetchRequest<NSFetchRequestResult>(
+            entityName: RemoteDataStore.remoteDataEntity
+        )
+        
+        if self.inMemory {
             fetchRequest.includesPropertyValues = false
             let payloads = try context.fetch(fetchRequest) as? [NSManagedObject]
             payloads?.forEach {
@@ -81,12 +128,18 @@ public class RemoteDataStore : NSObject {
             try context.execute(deleteRequest)
         }
     }
-
-    private func addPayload(_ payload: RemoteDataPayload, context: NSManagedObjectContext) {
+    
+    nonisolated private func addPayload(
+        _ payload: RemoteDataPayload,
+        context: NSManagedObjectContext
+    ) {
         // create the NSManagedObject
-        guard let remoteDataStorePayload = NSEntityDescription.insertNewObject(
-            forEntityName: RemoteDataStore.remoteDataEntity,
-                into: context) as? RemoteDataStorePayload else {
+        guard
+            let remoteDataStorePayload = NSEntityDescription.insertNewObject(
+                forEntityName: RemoteDataStore.remoteDataEntity,
+                into: context
+            ) as? RemoteDataStorePayload
+        else {
             return
         }
         
@@ -94,11 +147,12 @@ public class RemoteDataStore : NSObject {
         remoteDataStorePayload.type = payload.type
         remoteDataStorePayload.timestamp = payload.timestamp
         remoteDataStorePayload.data = payload.data
-        remoteDataStorePayload.metadata = payload.metadata
-    }
-
-    @objc
-    public func shutDown() {
-        self.coreData.shutDown()
+        do {
+            remoteDataStorePayload.remoteDataInfo = try payload.remoteDataInfo?.toEncodedJSONData()
+        } catch {
+            AirshipLogger.error("Unable to transform remote-data info to data \(error)")
+        }
     }
 }
+
+

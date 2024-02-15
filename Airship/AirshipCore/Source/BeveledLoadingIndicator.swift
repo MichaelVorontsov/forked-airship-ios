@@ -1,16 +1,15 @@
 /* Copyright Airship and Contributors */
 
 import UIKit
+
 #if !os(watchOS)
 import QuartzCore
 
-/**
- * An abstraction around a nicer looking
- * loading indicator that embeds a UIActivityIndicatorView
- * in a translucent black beveled rect.
- */
+/// An abstraction around a nicer looking
+/// loading indicator that embeds a UIActivityIndicatorView
+/// in a translucent black beveled rect.
 @objc(UABeveledLoadingIndicator)
-public class BeveledLoadingIndicator : UIView {
+public class BeveledLoadingIndicator: UIView {
     private var activity: UIActivityIndicatorView?
 
     @objc
@@ -44,7 +43,7 @@ public class BeveledLoadingIndicator : UIView {
         layer.cornerRadius = 10.0
         isHidden = true
 
-        activity = UIActivityIndicatorView(style: .whiteLarge)
+        activity = UIActivityIndicatorView(style: .large)
         activity?.hidesWhenStopped = true
         activity?.translatesAutoresizingMaskIntoConstraints = false
 
@@ -52,11 +51,27 @@ public class BeveledLoadingIndicator : UIView {
 
         var xConstraint: NSLayoutConstraint? = nil
         if let activity = activity {
-            xConstraint = NSLayoutConstraint(item: activity, attribute: .centerX, relatedBy: .equal, toItem: self, attribute: .centerX, multiplier: 1, constant: 0)
+            xConstraint = NSLayoutConstraint(
+                item: activity,
+                attribute: .centerX,
+                relatedBy: .equal,
+                toItem: self,
+                attribute: .centerX,
+                multiplier: 1,
+                constant: 0
+            )
         }
         var yConstraint: NSLayoutConstraint? = nil
         if let activity = activity {
-            yConstraint = NSLayoutConstraint(item: activity, attribute: .centerY, relatedBy: .equal, toItem: self, attribute: .centerY, multiplier: 1, constant: 0)
+            yConstraint = NSLayoutConstraint(
+                item: activity,
+                attribute: .centerY,
+                relatedBy: .equal,
+                toItem: self,
+                attribute: .centerY,
+                multiplier: 1,
+                constant: 0
+            )
         }
 
         xConstraint?.isActive = true

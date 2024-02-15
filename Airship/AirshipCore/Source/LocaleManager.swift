@@ -1,78 +1,68 @@
 /* Copyright Airship and Contributors */
 
-
-@objc(LocaleManagerProtocol)
-public protocol LocaleManagerProtocol {
+@objc(UALocaleManagerProtocol)
+public protocol AirshipLocaleManagerProtocol: AnyObject, Sendable {
     /**
      * Resets the current locale.
      */
     @objc
     func clearLocale()
-    
+
     /**
      * The current locale used by Airship. Defaults to `autoupdatingCurrent`.
      */
     @objc
-    var currentLocale : Locale { get }
+    var currentLocale: Locale { get }
 
-    
 }
-/**
- * Airship locale manager.
- */
-@objc(UALocaleManager)
-public class LocaleManager : NSObject, LocaleManagerProtocol {
 
-    private static let storeKey = "com.urbanairship.locale.locale"
+/// Airship locale manager.
+@objc(UALocaleManager)
+public final class AirshipLocaleManager: NSObject, AirshipLocaleManagerProtocol {
+
+    fileprivate static let storeKey = "com.urbanairship.locale.locale"
 
     @objc
-    public static let localeUpdatedEvent = NSNotification.Name("com.urbanairship.locale.locale_updated")
+    public static let localeUpdatedEvent = NSNotification.Name(
+        "com.urbanairship.locale.locale_updated"
+    )
 
     @objc
     public static let localeEventKey = "locale"
 
-    private var dataStore: PreferenceDataStore
-    private var notificationCenter: NotificationCenter
+    private let dataStore: PreferenceDataStore
+    private let notificationCenter: AirshipNotificationCenter
 
     /**
      * The current locale used by Airship. Defaults to `autoupdatingCurrent`.
      */
     @objc
-    public var currentLocale : Locale {
+    public var currentLocale: Locale {
         get {
-            if let encodedLocale = dataStore.object(forKey: LocaleManager.storeKey) as? Data {
-                if let locale = try? NSKeyedUnarchiver.unarchivedObject(
-                    ofClass: NSLocale.self,
-                    from: encodedLocale
-                ) as? Locale {
-                    return locale
-                }
-            }
-            return Locale.autoupdatingCurrent
+            return dataStore.localeOverride ?? Locale.autoupdatingCurrent
         }
         set {
-            let encodedLocale: Data = NSKeyedArchiver.archivedData(withRootObject: newValue)
-            dataStore.setObject(encodedLocale, forKey: LocaleManager.storeKey)
-            notificationCenter.post(name: LocaleManager.localeUpdatedEvent, object:[LocaleManager.localeEventKey: newValue])
+            dataStore.localeOverride = newValue
+            dispatchUpdate()
         }
     }
 
     /**
      * - Note: For internal use only. :nodoc:
      */
-    @objc
-    public convenience init(dataStore: PreferenceDataStore) {
-        self.init(dataStore: dataStore, notificationCenter: NotificationCenter.default)
-    }
-
-    /**
-     * - Note: For internal use only. :nodoc:
-     */ 
-    @objc
-    public init(dataStore: PreferenceDataStore, notificationCenter: NotificationCenter) {
+    init(
+        dataStore: PreferenceDataStore,
+        notificationCenter: AirshipNotificationCenter = AirshipNotificationCenter.shared
+    ) {
         self.dataStore = dataStore
         self.notificationCenter = notificationCenter
         super.init()
+
+        self.notificationCenter.addObserver(
+            self,
+            selector: #selector(autoLocaleChanged),
+            name: NSLocale.currentLocaleDidChangeNotification
+        )
     }
 
     /**
@@ -80,7 +70,57 @@ public class LocaleManager : NSObject, LocaleManagerProtocol {
      */
     @objc
     public func clearLocale() {
-        dataStore.removeObject(forKey: LocaleManager.storeKey)
-        notificationCenter.post(name: LocaleManager.localeUpdatedEvent, object:[LocaleManager.localeEventKey: self.currentLocale])
+        dataStore.localeOverride = nil
+        dispatchUpdate()
+    }
+
+    @objc
+    private func autoLocaleChanged() {
+        if (dataStore.localeOverride == nil) {
+            dispatchUpdate()
+        }
+    }
+
+    private func dispatchUpdate() {
+        notificationCenter.postOnMain(
+            name: AirshipLocaleManager.localeUpdatedEvent,
+            object: [AirshipLocaleManager.localeEventKey: self.currentLocale]
+        )
+    }
+}
+
+
+fileprivate extension PreferenceDataStore {
+    var localeOverride: Locale? {
+        get {
+            guard
+                let encodedLocale = object(forKey: AirshipLocaleManager.storeKey) as? Data
+            else {
+                return nil
+            }
+
+            return try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSLocale.self, from: encodedLocale) as? Locale
+        }
+        set {
+            guard let locale = newValue else {
+                removeObject(forKey: AirshipLocaleManager.storeKey)
+                return
+            }
+
+            guard
+                let encodedLocale: Data = try? NSKeyedArchiver.archivedData(
+                    withRootObject: locale,
+                    requiringSecureCoding: true
+                )
+            else {
+                AirshipLogger.error("Failed to encode locale!")
+                return
+            }
+
+            setValue(
+                encodedLocale,
+                forKey: AirshipLocaleManager.storeKey
+            )
+        }
     }
 }

@@ -4,7 +4,7 @@ import Foundation
 
 /// Permission status
 @objc(UAPermissionStatus)
-public enum PermissionStatus: UInt {
+public enum AirshipPermissionStatus: UInt, Sendable {
     /// Could not determine the permission status.
     case notDetermined
 
@@ -13,7 +13,6 @@ public enum PermissionStatus: UInt {
 
     /// Permission is denied.
     case denied
-
 
     /// The string value of the status
     /// - Returns: The string value of the status

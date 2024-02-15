@@ -2,25 +2,29 @@
 
 import XCTest
 
-@testable
-import AirshipCore
+@testable import AirshipCore
 
 class PreferenceDataStoreTest: XCTestCase {
 
-    let airshipDefaults = UserDefaults(suiteName: "\(Bundle.main.bundleIdentifier ?? "").airship.settings")!
-    let appKey = UUID().uuidString
-    let keychainAcccess = TestKeyChainAccess()
+    private let airshipDefaults = UserDefaults(
+        suiteName: "\(Bundle.main.bundleIdentifier ?? "").airship.settings"
+    )!
+    private let appKey = UUID().uuidString
+    private let testDeviceID = TestDeviceID()
     
     func testPrefix() throws {
         let dataStore = PreferenceDataStore(
             appKey: self.appKey,
             dispatcher: TestDispatcher(),
-            keychainAccess: keychainAcccess
+            deviceID: testDeviceID
         )
         dataStore.setObject("neat", forKey: "some-key")
-        XCTAssertEqual("neat", airshipDefaults.string(forKey: "\(self.appKey)some-key"))
+        XCTAssertEqual(
+            "neat",
+            airshipDefaults.string(forKey: "\(self.appKey)some-key")
+        )
     }
- 
+
     /// Tests merging data from the old keys in either standard or the Airship defaults:
     ///  - If a value exists under the old key but not the new key, it will be restored under the new key
     ///  - If channel tags exists under both keys we will merge the two tag arrays
@@ -29,25 +33,48 @@ class PreferenceDataStoreTest: XCTestCase {
         let legacyPrefix = "com.urbanairship.\(appKey)."
         let newPrefix = self.appKey
         let tagsKey = "com.urbanairship.channel.tags"
-        
+
         standardDefaults.set("keep-new: old", forKey: "\(legacyPrefix)keep-new")
-        self.airshipDefaults.set("keep-new: new", forKey: "\(newPrefix)keep-new")
-        standardDefaults.set("restore-old: old", forKey: "\(legacyPrefix)restore-old")
-        
-        self.airshipDefaults.set("another-keep-new: old", forKey: "\(legacyPrefix)another-keep-new")
-        self.airshipDefaults.set("another-keep-new: new", forKey: "\(newPrefix)another-keep-new")
-        self.airshipDefaults.set("another-restore-old: old", forKey: "\(legacyPrefix)another-restore-old")
-        
-        
+        self.airshipDefaults.set(
+            "keep-new: new",
+            forKey: "\(newPrefix)keep-new"
+        )
+        standardDefaults.set(
+            "restore-old: old",
+            forKey: "\(legacyPrefix)restore-old"
+        )
+
+        self.airshipDefaults.set(
+            "another-keep-new: old",
+            forKey: "\(legacyPrefix)another-keep-new"
+        )
+        self.airshipDefaults.set(
+            "another-keep-new: new",
+            forKey: "\(newPrefix)another-keep-new"
+        )
+        self.airshipDefaults.set(
+            "another-restore-old: old",
+            forKey: "\(legacyPrefix)another-restore-old"
+        )
+
         standardDefaults.set(["a", "b"], forKey: "\(legacyPrefix)\(tagsKey)")
         self.airshipDefaults.set(["c"], forKey: "\(newPrefix)\(tagsKey)")
-        
+
         let dataStore = PreferenceDataStore(appKey: self.appKey)
 
-        XCTAssertEqual("another-keep-new: new", dataStore.string(forKey: "another-keep-new"))
-        XCTAssertEqual("another-restore-old: old", dataStore.string(forKey: "another-restore-old"))
+        XCTAssertEqual(
+            "another-keep-new: new",
+            dataStore.string(forKey: "another-keep-new")
+        )
+        XCTAssertEqual(
+            "another-restore-old: old",
+            dataStore.string(forKey: "another-restore-old")
+        )
         XCTAssertEqual("keep-new: new", dataStore.string(forKey: "keep-new"))
-        XCTAssertEqual("restore-old: old", dataStore.string(forKey: "restore-old"))
+        XCTAssertEqual(
+            "restore-old: old",
+            dataStore.string(forKey: "restore-old")
+        )
         XCTAssertEqual(["a", "b", "c"], dataStore.stringArray(forKey: tagsKey))
     }
 
@@ -70,7 +97,10 @@ class PreferenceDataStoreTest: XCTestCase {
 
         let dict = ["neat": "rad"]
         dataStore.setObject(dict, forKey: "dict")
-        XCTAssertEqual(dict, dataStore.dictionary(forKey: "dict") as! [String : String])
+        XCTAssertEqual(
+            dict,
+            dataStore.dictionary(forKey: "dict") as! [String: String]
+        )
 
         let float: Float = 2.0
         dataStore.setFloat(float, forKey: "float")
@@ -101,16 +131,31 @@ class PreferenceDataStoreTest: XCTestCase {
 
     func testDefaults() throws {
         let dataStore = PreferenceDataStore(appKey: self.appKey)
-        XCTAssertEqual(100.0, dataStore.double(forKey: "neat", defaultValue: 100.0))
+        XCTAssertEqual(
+            100.0,
+            dataStore.double(forKey: "neat", defaultValue: 100.0)
+        )
         XCTAssertEqual(true, dataStore.bool(forKey: "neat", defaultValue: true))
 
-        XCTAssertEqual(dataStore.double(forKey: "neat"), self.airshipDefaults.double(forKey: "neat"))
+        XCTAssertEqual(
+            dataStore.double(forKey: "neat"),
+            self.airshipDefaults.double(forKey: "neat")
+        )
 
-        XCTAssertEqual(dataStore.float(forKey: "neat"), self.airshipDefaults.float(forKey: "neat"))
+        XCTAssertEqual(
+            dataStore.float(forKey: "neat"),
+            self.airshipDefaults.float(forKey: "neat")
+        )
 
-        XCTAssertEqual(dataStore.bool(forKey: "neat"), self.airshipDefaults.bool(forKey: "neat"))
+        XCTAssertEqual(
+            dataStore.bool(forKey: "neat"),
+            self.airshipDefaults.bool(forKey: "neat")
+        )
 
-        XCTAssertEqual(dataStore.integer(forKey: "neat"), self.airshipDefaults.integer(forKey: "neat"))
+        XCTAssertEqual(
+            dataStore.integer(forKey: "neat"),
+            self.airshipDefaults.integer(forKey: "neat")
+        )
     }
 
     func testCodable() throws {
@@ -127,72 +172,55 @@ class PreferenceDataStoreTest: XCTestCase {
         let foo = FooCodable(foo: "woot")
 
         try dataStore.setCodable(foo, forKey: "codable")
-        XCTAssertThrowsError(try {
-            let _: BarCodable? = try dataStore.codable(forKey: "codable")
-        }())
+        XCTAssertThrowsError(
+            try {
+                let _: BarCodable? = try dataStore.codable(forKey: "codable")
+            }()
+        )
     }
     
-    func testAppNotRestored() throws {
-        var dataStore = PreferenceDataStore(
+    func testAppNotRestoredNoData() async throws {
+        let dataStore = PreferenceDataStore(
             appKey: self.appKey,
             dispatcher: TestDispatcher(),
-            keychainAccess: keychainAcccess
+            deviceID: testDeviceID
         )
-        XCTAssertFalse(dataStore.isAppRestore)
-        
-        dataStore = PreferenceDataStore(
-            appKey: self.appKey,
-            dispatcher: TestDispatcher(),
-            keychainAccess: keychainAcccess
-        )
-        XCTAssertFalse(dataStore.isAppRestore)
+
+        let value = await dataStore.isAppRestore
+        XCTAssertFalse(value)
     }
     
-    func testAppRestoredDeviceIDCleared() throws {
-        var dataStore = PreferenceDataStore(
+    func testAppRestoredDeviceIDChange() async throws {
+        let dataStore = PreferenceDataStore(
             appKey: self.appKey,
             dispatcher: TestDispatcher(),
-            keychainAccess: keychainAcccess
+            deviceID: testDeviceID
         )
-        XCTAssertFalse(dataStore.isAppRestore)
-        
-        self.keychainAcccess.deviceID = nil
-    
-        dataStore = PreferenceDataStore(
-            appKey: self.appKey,
-            dispatcher: TestDispatcher(),
-            keychainAccess: keychainAcccess
-        )
-        XCTAssertTrue(dataStore.isAppRestore)
-    }
-    
-    func testAppRestoredDeviceIDChanged() throws {
-        var dataStore = PreferenceDataStore(
-            appKey: self.appKey,
-            dispatcher: TestDispatcher(),
-            keychainAccess: keychainAcccess
-        )
-        XCTAssertFalse(dataStore.isAppRestore)
-        
-        self.keychainAcccess.deviceID = UUID().uuidString
-    
-        dataStore = PreferenceDataStore(
-            appKey: self.appKey,
-            dispatcher: TestDispatcher(),
-            keychainAccess: keychainAcccess
-        )
-        XCTAssertTrue(dataStore.isAppRestore)
+        var value = await dataStore.isAppRestore
+        XCTAssertFalse(value)
+
+
+        await self.testDeviceID.setValue(value: UUID().uuidString)
+        value = await dataStore.isAppRestore
+        XCTAssertTrue(value)
     }
 }
 
-fileprivate struct FooCodable: Codable, Equatable {
+private struct FooCodable: Codable, Equatable {
     let foo: String
 }
 
-fileprivate struct BarCodable: Codable, Equatable {
+private struct BarCodable: Codable, Equatable {
     let bar: String
 }
 
-class TestKeyChainAccess : PreferenceDataStoreKeychainAccessProtocol {
-    var deviceID: String?
+
+fileprivate actor TestDeviceID: AirshipDeviceIDProtocol {
+    var value: String = UUID().uuidString
+
+    init() {}
+
+    public func setValue(value: String) {
+        self.value = value
+    }
 }

@@ -1,12 +1,11 @@
 /* Copyright Airship and Contributors */
 
 import Foundation
-import UserNotifications
 import UIKit
-/**
- * Internal protocol to fan out push handling to UAComponents.
- *  - Note: For internal use only. :nodoc:
- */
+import UserNotifications
+
+/// Internal protocol to fan out push handling to UAComponents.
+///  - Note: For internal use only. :nodoc:
 @objc(UAPushableComponent)
 public protocol PushableComponent: AnyObject {
     #if !os(watchOS)
@@ -17,7 +16,10 @@ public protocol PushableComponent: AnyObject {
      *    - completionHandler: The completion handler that must be called with the fetch result.
      */
     @objc
-    optional func receivedRemoteNotification(_ notification: [AnyHashable: Any], completionHandler: @escaping (UIBackgroundFetchResult) -> Void)
+    optional func receivedRemoteNotification(
+        _ notification: [AnyHashable: Any],
+        completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    )
     #else
     /**
      * Called when a remote notification is received.
@@ -26,7 +28,10 @@ public protocol PushableComponent: AnyObject {
      *    - completionHandler: The completion handler that must be called with the fetch result.
      */
     @objc
-    optional func receivedRemoteNotification(_ notification: [AnyHashable: Any], completionHandler: @escaping (WKBackgroundFetchResult) -> Void)
+    optional func receivedRemoteNotification(
+        _ notification: [AnyHashable: Any],
+        completionHandler: @escaping (WKBackgroundFetchResult) -> Void
+    )
     #endif
 
     #if !os(tvOS)
@@ -37,7 +42,10 @@ public protocol PushableComponent: AnyObject {
      *   - completionHandler: The completion handler that must be called after processing the response.
      */
     @objc
-    optional func receivedNotificationResponse(_ response: UNNotificationResponse, completionHandler: @escaping () -> Void)
+    optional func receivedNotificationResponse(
+        _ response: UNNotificationResponse,
+        completionHandler: @escaping () -> Void
+    )
     #endif
 
     /**
@@ -48,5 +56,8 @@ public protocol PushableComponent: AnyObject {
      *   - options: Default presentation options.
      */
     @objc(presentationOptionsForNotification:defaultPresentationOptions:)
-    optional func presentationOptions(for notification: UNNotification, defaultPresentationOptions options: UNNotificationPresentationOptions) -> UNNotificationPresentationOptions
+    optional func presentationOptions(
+        for notification: UNNotification,
+        defaultPresentationOptions options: UNNotificationPresentationOptions
+    ) -> UNNotificationPresentationOptions
 }

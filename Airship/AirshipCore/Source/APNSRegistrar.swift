@@ -2,25 +2,35 @@
 
 import Foundation
 import UIKit
+
 #if os(watchOS)
 import WatchKit
 #endif
 
-protocol APNSRegistrar {
+protocol APNSRegistrar: Sendable {
+    @MainActor
     var isRegisteredForRemoteNotifications: Bool { get }
-    func registerForRemoteNotifications() -> Void
+    @MainActor
+    func registerForRemoteNotifications()
+    @MainActor
     var isRemoteNotificationBackgroundModeEnabled: Bool { get }
-#if !os(watchOS)
+    #if !os(watchOS)
+    @MainActor
     var isBackgroundRefreshStatusAvailable: Bool { get }
-#endif
+    #endif
 }
 
 #if !os(watchOS)
 
 extension UIApplication: APNSRegistrar {
     static var _isRemoteNotificationBackgroundModeEnabled: Bool {
-        let backgroundModes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [Any]
-        return backgroundModes?.contains(where: { ($0 as? String) == "remote-notification" }) == true
+        let backgroundModes =
+            Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes")
+            as? [Any]
+        return backgroundModes?
+            .contains(where: {
+                ($0 as? String) == "remote-notification"
+            }) == true
     }
 
     var isRemoteNotificationBackgroundModeEnabled: Bool {
@@ -37,7 +47,7 @@ extension UIApplication: APNSRegistrar {
 extension WKExtension: APNSRegistrar {
     var isRemoteNotificationBackgroundModeEnabled: Bool {
         return true
-    
+
     }
 }
 

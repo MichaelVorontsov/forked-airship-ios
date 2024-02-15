@@ -9,37 +9,44 @@ import Foundation
 /// -`fallback_system_settings`: Bool?. If denied, fallback to system settings.
 /// -`permission`: String. The name of the permission. `post_notifications`, `bluetooth`, `mic`, `location`, `contacts`, `camera`, etc...
 ///
-/// Accepted situations: autmoation, manualInvocation, webViewInvocation, launchedFromPush, foregroundInteractiveButton, foreground Push
-///
-@objc(UAPromptPermissionAction)
-public class PromptPermissionAction: NSObject, Action {
+/// Valid situations: `ActionSituation.foregroundPush`, `ActionSituation.launchedFromPush`,
+/// `ActionSituation.webViewInvocation`, `ActionSituation.manualInvocation`,
+/// `ActionSituation.foregroundInteractiveButton`, and `ActionSituation.automation`
+public final class PromptPermissionAction: AirshipAction {
 
-    /// Metadata key for the reuslt receiver. Must be (Permission, PermissionStatus, PermissionStatus) -> Void
+    /// Default names - "prompt_permission_action", "^pp"
+    public static let defaultNames = ["prompt_permission_action", "^pp"]
+    
+    /// Default predicate - rejects foreground pushes with visible display options
+    public static let defaultPredicate: @Sendable (ActionArguments) -> Bool = { args in
+        return args.metadata[ActionArguments.isForegroundPresentationMetadataKey] as? Bool != true
+    }
+
+    /// Metadata key for the result receiver. Must be (Permission, PermissionStatus, PermissionStatus) -> Void
     /// - Note: For internal use only. :nodoc:
-    @objc
     public static let resultReceiverMetadataKey = "permission_result"
 
-    private let permissionPrompter: () -> PermissionPrompter
+    private let permissionPrompter: @Sendable () -> PermissionPrompter
 
-    required init(permissionPrompter: @escaping () -> PermissionPrompter) {
+    public convenience init() {
+           self.init {
+               return AirshipPermissionPrompter(
+                   permissionsManager: Airship.shared.permissionsManager
+               )
+           }
+       }
+
+    
+    required init(permissionPrompter: @escaping @Sendable () -> PermissionPrompter) {
         self.permissionPrompter = permissionPrompter
     }
-
-    convenience override init() {
-        self.init {
-            return AirshipPermissionPrompter(permissionsManager: Airship.shared.permissionsManager)
-        }
-    }
-
-    public func acceptsArguments(_ arguments: ActionArguments) -> Bool {
-        switch (arguments.situation) {
-        case .automation: fallthrough
-        case .manualInvocation: fallthrough
-        case .launchedFromPush: fallthrough
-        case .webViewInvocation: fallthrough
-        case .foregroundInteractiveButton: fallthrough
-        case .foregroundPush:
-            return arguments.value != nil
+    
+    public func accepts(arguments: ActionArguments) async -> Bool {
+        switch arguments.situation {
+        case .automation, .manualInvocation, .launchedFromPush,
+            .webViewInvocation,
+            .foregroundInteractiveButton, .foregroundPush:
+            return true
         case .backgroundPush: fallthrough
         case .backgroundInteractiveButton: fallthrough
         @unknown default:
@@ -47,55 +54,45 @@ public class PromptPermissionAction: NSObject, Action {
         }
     }
 
-    public func perform(with arguments: ActionArguments,
-                 completionHandler: @escaping UAActionCompletionHandler) {
-
-        guard let arg = arguments.value else {
-            completionHandler(ActionResult.empty())
-            return
+    public func perform(arguments: ActionArguments) async throws -> AirshipJSON? {
+            
+        let unwrapped = arguments.value.unWrap()
+        guard let arg = unwrapped else {
+            return nil
         }
+                       
+        let data = try JSONSerialization.data(
+            withJSONObject: arg,
+            options: []
+        )
+        let args = try JSONDecoder().decode(Args.self, from: data)
+                
+        let (start, end) = await self.permissionPrompter()
+            .prompt(
+                permission: args.permission,
+                enableAirshipUsage: args.enableAirshipUsage ?? false,
+                fallbackSystemSettings: args.fallbackSystemSettings ?? false
+            )
 
-        do {
-            let data = try JSONSerialization.data(withJSONObject: arg, options: [])
-            let args = try JSONDecoder().decode(Args.self, from: data)
-            self.permissionPrompter()
-                .prompt(permission: args.permission,
-                        enableAirshipUsage: args.enableAirshipUsage ?? false,
-                        fallbackSystemSettings: args.fallbackSystemSettings ?? false) { start, end in
+        let resultReceiver = arguments.metadata[
+            PromptPermissionAction.resultReceiverMetadataKey
+        ] as? PermissionResultReceiver
 
-                    if let metadata = arguments.metadata {
-                        let resultReceiver = metadata[PromptPermissionAction.resultReceiverMetadataKey] as? PermissionResultReceiver
+        resultReceiver?(args.permission, start, end)
 
-                        resultReceiver?(args.permission, start, end)
-                    }
-                }
-            completionHandler(ActionResult.empty())
-        }
-        catch {
-            completionHandler(ActionResult(error: error))
-            return
-        }
+        return nil
     }
 
     internal struct Args: Decodable {
         let enableAirshipUsage: Bool?
         let fallbackSystemSettings: Bool?
-        let permission: Permission
+        let permission: AirshipPermission
 
         enum CodingKeys: String, CodingKey {
             case enableAirshipUsage = "enable_airship_usage"
             case fallbackSystemSettings = "fallback_system_settings"
             case permission = "permission"
         }
-    }
-
-    @objc
-    public class func makePermissionReceiverMetadata(
-        resultReceiver: @escaping (Permission, PermissionStatus, PermissionStatus) -> Void
-    ) -> [AnyHashable: Any] {
-        return [
-            PromptPermissionAction.resultReceiverMetadataKey: resultReceiver
-        ]
     }
 }
 

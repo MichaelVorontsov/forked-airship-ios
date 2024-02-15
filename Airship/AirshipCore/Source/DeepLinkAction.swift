@@ -1,80 +1,71 @@
 /* Copyright Airship and Contributors */
 
-/**
- * Opens a deep link URL. This action is registered under
- * the names ^d and deep_link_action.
- *
- * Expected argument values: NSString
- *
- * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush
- * UASituationWebViewInvocation, UASituationForegroundInteractiveButton,
- * UASituationManualInvocation, and UASituationAutomation
- *
- * Result value: An NSString representation of the input
- *
- * Error: Iif the URL could not be opened
- *
- * Fetch result: UAActionFetchResultNoData
- */
-@objc(UADeepLinkAction)
-public class DeepLinkAction : NSObject, Action {
+/// Opens a deep link URL.
+///
+/// Expected argument values: A valid URL String.
+///
+/// Valid situations: All but `backgroundPush` and `backgroundInteractiveButton`
+public final class DeepLinkAction: AirshipAction {
 
-    public func acceptsArguments(_ arguments: ActionArguments) -> Bool {
-        switch (arguments.situation) {
+    /// Default names - "deep_link_action", "^d"
+    public static let defaultNames = ["deep_link_action", "^d"]
+
+    /// Default predicate - Rejects `Airship.foregroundPush`
+    public static let defaultPredicate: @Sendable (ActionArguments) -> Bool = { args in
+        return args.situation != .foregroundPush
+    }
+
+    private let urlOpener: URLOpenerProtocol
+
+    init(urlOpener: URLOpenerProtocol) {
+        self.urlOpener = urlOpener
+    }
+
+    public convenience init() {
+        self.init(urlOpener: DefaultURLOpener())
+    }
+
+    public func accepts(arguments: ActionArguments) async -> Bool {
+        switch arguments.situation {
         case .backgroundPush:
             return false
         case .backgroundInteractiveButton:
             return false
         default:
-            return parseURL(arguments) != nil
+            return true
         }
     }
 
-    public func perform(with arguments: ActionArguments,
-                        completionHandler: @escaping UAActionCompletionHandler) {
-        
-        guard let url = parseURL(arguments) else {
-            completionHandler(ActionResult.empty())
-            return
+    @MainActor
+    public func perform(arguments: ActionArguments) async throws -> AirshipJSON? {
+        let url = try parseURL(arguments.value)
+        let result = await Airship.shared.deepLink(url)
+
+        if !result {
+            try await self.openURL(url)
         }
-        
-        Airship.shared.deepLink(url) { result in
-            if (result) {
-                completionHandler(ActionResult.empty())
-            } else {
-                self.openURL(url, completionHandler: completionHandler)
-            }
+
+        return nil
+    }
+
+    @MainActor
+    private func openURL(_ url: URL) async throws {
+        guard Airship.shared.urlAllowList.isAllowed(url, scope: .openURL) else {
+            throw AirshipErrors.error("URL \(url) not allowed")
+        }
+
+        guard await urlOpener.openURL(url) else {
+            throw AirshipErrors.error("Unable to open URL \(url).")
         }
     }
-    
-    private func openURL(_ url: URL, completionHandler: @escaping UAActionCompletionHandler) {
-        UADispatcher.main.dispatchAsync {
-            guard Airship.shared.urlAllowList.isAllowed(url, scope: .openURL) else {
-                AirshipLogger.error("URL \(url) not allowed. Unable to open url.")
-                completionHandler(ActionResult(error: AirshipErrors.error("URL \(url) not allowed")))
-                return
+
+    private func parseURL(_ value: AirshipJSON) throws -> URL {
+        if let value = value.unWrap() as? String {
+            if let url = AirshipUtils.parseURL(value) {
+                return url
             }
-            #if !os(watchOS)
-            UIApplication.shared.open(url, options: [:]) { success in
-                if (success) {
-                    completionHandler(ActionResult.empty())
-                } else {
-                    completionHandler(ActionResult(error: AirshipErrors.error("Failed to open url \(url)")))
-                }
-            }
-            #else
-            WKExtension.shared().openSystemURL(url)
-            #endif
         }
-    }
-    
-    private func parseURL(_ arguments: ActionArguments) -> URL? {
-        
-        if let value = arguments.value as? String  {
-            return Utils.parseURL(value)
-        }
-        return arguments.value as? URL
-        
+
+        throw AirshipErrors.error("Invalid URL: \(value)")
     }
 }
-

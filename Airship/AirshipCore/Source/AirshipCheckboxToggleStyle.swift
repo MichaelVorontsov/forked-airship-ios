@@ -3,12 +3,13 @@
 import Foundation
 import SwiftUI
 
-@available(iOS 13.0.0, tvOS 13.0, *)
+
 struct AirshipCheckboxToggleStyle: ToggleStyle {
     let viewConstraints: ViewConstraints
     let model: CheckboxToggleStyleModel
     let colorScheme: ColorScheme
-    
+    let disabled: Bool
+
     func makeBody(configuration: Self.Configuration) -> some View {
         let isOn = configuration.isOn
         let binding = isOn ? model.bindings.selected : model.bindings.unselected
@@ -19,16 +20,31 @@ struct AirshipCheckboxToggleStyle: ToggleStyle {
         constraints.isVerticalFixedSize = true
         constraints.isHorizontalFixedSize = true
 
-        return Button(action: { configuration.isOn.toggle() } ) {
+        return Button(action: { configuration.isOn.toggle() }) {
             ZStack {
                 if let shapes = binding.shapes {
-                    ForEach(0..<shapes.count, id: \.self) { index in
-                        Shapes.shape(model: shapes[index],
-                                     constraints: constraints,
-                                     colorScheme: colorScheme)
+                    if binding == model.bindings.selected {
+                        ForEach(0..<shapes.count, id: \.self) { index in
+                            Shapes.shape(
+                                model: shapes[index],
+                                constraints: constraints,
+                                colorScheme: colorScheme
+                            )
+                        }
+                        .applyIf(disabled) {  view in
+                            view.colorMultiply(HexColor.disabled.toColor())
+                        }
+                    } else {
+                        ForEach(0..<shapes.count, id: \.self) { index in
+                            Shapes.shape(
+                                model: shapes[index],
+                                constraints: constraints,
+                                colorScheme: colorScheme
+                            )
+                        }
                     }
                 }
-                
+
                 if let iconModel = binding.icon {
                     Icons.icon(model: iconModel, colorScheme: colorScheme)
                 }

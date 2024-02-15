@@ -1,18 +1,16 @@
 /* Copyright Airship and Contributors */
 
-/**
- * Predicate for JSON payloads.
- */
+/// Predicate for JSON payloads.
 @objc(UAJSONPredicate)
-public class JSONPredicate : NSObject {
+public final class JSONPredicate: NSObject, Sendable, Codable {
     private static let andTypeKey = "and"
     private static let orTypeKey = "or"
     private static let notTypeKey = "not"
     private static let errorDomainKey = "com.urbanairship.json_predicate"
-    
-    private var type: String?
-    private var subpredicates: [JSONPredicate]?
-    private var jsonMatcher: JSONMatcher?
+
+    private let type: String?
+    private let subpredicates: [JSONPredicate]?
+    private let jsonMatcher: JSONMatcher?
 
     @objc
     required init(
@@ -21,13 +19,12 @@ public class JSONPredicate : NSObject {
         subpredicates: [JSONPredicate]?
     ) {
 
-        super.init()
         self.type = type
         self.jsonMatcher = jsonMatcher
         self.subpredicates = subpredicates
+        super.init()
     }
-    
-    
+
     /**
      * Factory method to create a predicate from a JSON payload.
      *
@@ -37,9 +34,13 @@ public class JSONPredicate : NSObject {
      */
     @objc(initWithJSON:error:)
     public convenience init(json: Any?) throws {
-        guard let parsedJson = json as? [String : Any] else {
-            AirshipLogger.error("Attempted to deserialize invalid object: \(json ?? "")")
-            throw AirshipErrors.parseError("Attempted to deserialize invalid object: \(json ?? "")")
+        guard let parsedJson = json as? [String: Any] else {
+            AirshipLogger.error(
+                "Attempted to deserialize invalid object: \(json ?? "")"
+            )
+            throw AirshipErrors.parseError(
+                "Attempted to deserialize invalid object: \(json ?? "")"
+            )
         }
 
         var type: String?
@@ -50,40 +51,71 @@ public class JSONPredicate : NSObject {
         } else if parsedJson[JSONPredicate.notTypeKey] != nil {
             type = JSONPredicate.notTypeKey
         }
-        
+
         if type != nil && parsedJson.count != 1 {
             AirshipLogger.error("Invalid JSON: \(String(describing: json))")
-            throw AirshipErrors.parseError("Invalid JSON: \(String(describing: json))")
+            throw AirshipErrors.parseError(
+                "Invalid JSON: \(String(describing: json))"
+            )
         }
 
         if let type = type {
             var subpredicates: [JSONPredicate] = []
             guard let typeInfo = parsedJson[type] as? [Any] else {
                 AirshipLogger.error("Attempted to deserialize invalid object")
-                throw AirshipErrors.parseError("Attempted to deserialize invalid object")
+                throw AirshipErrors.parseError(
+                    "Attempted to deserialize invalid object"
+                )
             }
 
-            if ((type == JSONPredicate.notTypeKey) && typeInfo.count != 1) || typeInfo.count == 0 {
-                AirshipLogger.error("A `not` predicate must contain a single sub predicate or matcher.")
-                throw AirshipErrors.error("A `not` predicate must contain a single sub predicate or matcher.")
+            if ((type == JSONPredicate.notTypeKey) && typeInfo.count != 1)
+                || typeInfo.count == 0
+            {
+                AirshipLogger.error(
+                    "A `not` predicate must contain a single sub predicate or matcher."
+                )
+                throw AirshipErrors.error(
+                    "A `not` predicate must contain a single sub predicate or matcher."
+                )
             }
 
             for subpredicateInfo in typeInfo {
-                guard let predicate = try? JSONPredicate(json: subpredicateInfo) else {
-                    AirshipLogger.error("Invalid JSON: \(String(describing: json))")
-                    throw AirshipErrors.parseError("Invalid JSON: \(String(describing: json))")
+                guard let predicate = try? JSONPredicate(json: subpredicateInfo)
+                else {
+                    AirshipLogger.error(
+                        "Invalid JSON: \(String(describing: json))"
+                    )
+                    throw AirshipErrors.parseError(
+                        "Invalid JSON: \(String(describing: json))"
+                    )
                 }
 
                 subpredicates.append(predicate)
             }
 
-            self.init(type: type, jsonMatcher: nil, subpredicates: subpredicates)
+            self.init(
+                type: type,
+                jsonMatcher: nil,
+                subpredicates: subpredicates
+            )
         } else if let jsonMatcher = try? JSONMatcher(json: json) {
             self.init(type: nil, jsonMatcher: jsonMatcher, subpredicates: nil)
         } else {
             AirshipLogger.error("Invalid JSON: \(String(describing: json))")
-            throw AirshipErrors.parseError("Invalid JSON: \(String(describing: json))")
+            throw AirshipErrors.parseError(
+                "Invalid JSON: \(String(describing: json))"
+            )
         }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        let json = try AirshipJSON.wrap(payload())
+        try json.encode(to: encoder)
+    }
+
+    public convenience init(from decoder: Decoder) throws {
+        let json = try AirshipJSON(from: decoder)
+        try self.init(json: json.unWrap())
     }
 
     /**
@@ -92,7 +124,7 @@ public class JSONPredicate : NSObject {
      * - Returns: The predicate's JSON payload.
      */
     @objc
-    public func payload() -> [String : Any] {
+    public func payload() -> [String: Any] {
         if let type = type {
             var subpredicatePayloads: [Any] = []
             for predicate in subpredicates ?? [] {
@@ -166,8 +198,14 @@ public class JSONPredicate : NSObject {
      * - Returns: A JSON predicate.
      */
     @objc(andPredicateWithSubpredicates:)
-    public class func andPredicate(subpredicates: [JSONPredicate]?) -> JSONPredicate {
-        return JSONPredicate(type: JSONPredicate.andTypeKey, jsonMatcher: nil, subpredicates: subpredicates)
+    public class func andPredicate(subpredicates: [JSONPredicate]?)
+        -> JSONPredicate
+    {
+        return JSONPredicate(
+            type: JSONPredicate.andTypeKey,
+            jsonMatcher: nil,
+            subpredicates: subpredicates
+        )
     }
 
     /**
@@ -178,8 +216,14 @@ public class JSONPredicate : NSObject {
      * - Returns: A JSON predicate.
      */
     @objc(orPredicateWithSubpredicates:)
-    public class func orPredicate(subpredicates: [JSONPredicate]?) -> JSONPredicate {
-        return JSONPredicate(type: JSONPredicate.orTypeKey, jsonMatcher: nil, subpredicates: subpredicates)
+    public class func orPredicate(subpredicates: [JSONPredicate]?)
+        -> JSONPredicate
+    {
+        return JSONPredicate(
+            type: JSONPredicate.orTypeKey,
+            jsonMatcher: nil,
+            subpredicates: subpredicates
+        )
 
     }
 
@@ -191,8 +235,13 @@ public class JSONPredicate : NSObject {
      * - Returns:A JSON predicate.
      */
     @objc(notPredicateWithSubpredicate:)
-    public class func notPredicate(subpredicate: JSONPredicate) -> JSONPredicate {
-        return JSONPredicate(type: JSONPredicate.notTypeKey, jsonMatcher: nil, subpredicates: [subpredicate].compactMap { $0 })
+    public class func notPredicate(subpredicate: JSONPredicate) -> JSONPredicate
+    {
+        return JSONPredicate(
+            type: JSONPredicate.notTypeKey,
+            jsonMatcher: nil,
+            subpredicates: [subpredicate].compactMap { $0 }
+        )
     }
 
     /**
@@ -209,5 +258,32 @@ public class JSONPredicate : NSObject {
 
     public override var description: String {
         return String(format: "JSONPredicate{predicate=\(payload())}")
+    }
+
+    func isEqual(to options: JSONPredicate) -> Bool {
+
+        return type == options.type
+            && jsonMatcher == options.jsonMatcher
+            && subpredicates == options.subpredicates
+    }
+
+    public override func isEqual(_ object: Any?) -> Bool {
+        guard let predicate = object as? JSONPredicate else {
+            return false
+        }
+
+        if self === predicate {
+            return true
+        }
+
+        return isEqual(to: predicate)
+    }
+
+    func hash() -> Int {
+        var result = 1
+        result = 31 * result + (type?.hashValue ?? 1)
+        result = 31 * result + jsonMatcher.hashValue
+        result = 31 * result + (subpredicates?.hashValue ?? 1)
+        return result
     }
 }

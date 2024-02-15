@@ -7,6 +7,9 @@
 "ua_delete_messages" = "Delete";
 "ua_delete_messages_description" = "Delete selected messages";
 
+"ua_done" = "Done";
+"ua_done_description" = "Dismiss message center";
+
 "ua_message_cell_editing_description" = "Toggles selection";
 "ua_message_cell_description" = "Displays full message";
 
@@ -24,7 +27,7 @@
 "ua_select_none_messages_description" = "Reset message selection";
 
 "ua_edit_messages" = "Edit";
-"ua_edit_messages_description" = "Edit messsages";
+"ua_edit_messages_description" = "Edit messages";
 "ua_unread_message_description" = "Message unread";
 
 // Message <TITLE>, sent at <DATE>
@@ -70,5 +73,6 @@
 "ua_chat_send_button" = "Send";
 
 "ua_preference_center_title" = "Preference Center";
+"ua_preference_center_empty" = "Unable to load preferences. Please try again later.";
 
 

@@ -1,41 +1,29 @@
 /* Copyright Airship and Contributors */
 
-/// Conflict policy if a task with the same ID is already scheduled.
 /// - Note: For internal use only. :nodoc:
-@objc
-public enum UATaskConflictPolicy : Int {
-    /// Keep previously scheduled task.
-    case keep
-
-    /// Replace previously scheduled task with new request.
-    case replace
-
-    /// Add new task but leave previously scheduled tasks.
-    case append
-}
-
-/**
- * - Note: For internal use only. :nodoc:
- */
 @objc(UATaskRequestOptions)
-public class TaskRequestOptions : NSObject {
+public class TaskRequestOptions: NSObject {
     @objc
-    public let conflictPolicy: UATaskConflictPolicy
+    public let conflictPolicy: AirshipWorkRequestConflictPolicy
 
     @objc
-    public let isNetworkRequired : Bool
+    public let isNetworkRequired: Bool
 
     @objc
-    public let extras: [AnyHashable : Any]
+    public let extras: [String: String]
 
     @objc
-    public static let defaultOptions = TaskRequestOptions(conflictPolicy: .replace, requiresNetwork: true)
-
+    public static let defaultOptions = TaskRequestOptions(
+        conflictPolicy: .replace,
+        requiresNetwork: true
+    )
 
     @objc
-    public init(conflictPolicy: UATaskConflictPolicy = .replace,
-                requiresNetwork: Bool = false,
-                extras: [AnyHashable : Any]? = nil) {
+    public init(
+        conflictPolicy: AirshipWorkRequestConflictPolicy = .replace,
+        requiresNetwork: Bool = false,
+        extras: [String: String]? = nil
+    ) {
         self.conflictPolicy = conflictPolicy
         self.isNetworkRequired = requiresNetwork
         self.extras = extras ?? [:]
@@ -43,9 +31,9 @@ public class TaskRequestOptions : NSObject {
     }
 
     func isEqual(to options: TaskRequestOptions) -> Bool {
-        return conflictPolicy == options.conflictPolicy &&
-            isNetworkRequired == options.isNetworkRequired &&
-            NSDictionary(dictionary: extras).isEqual(to: options.extras)
+        return conflictPolicy == options.conflictPolicy
+            && isNetworkRequired == options.isNetworkRequired
+            && NSDictionary(dictionary: extras).isEqual(to: options.extras)
     }
 
     public override func isEqual(_ object: Any?) -> Bool {
@@ -53,7 +41,7 @@ public class TaskRequestOptions : NSObject {
             return false
         }
 
-        if (self === options) {
+        if self === options {
             return true
         }
 

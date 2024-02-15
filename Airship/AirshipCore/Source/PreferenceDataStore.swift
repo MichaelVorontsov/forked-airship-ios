@@ -2,63 +2,61 @@
 
 import Foundation
 
-/**
- * Preference data store.
- * - Note: For internal use only. :nodoc:
- */
+/// Preference data store.
+/// - Note: For internal use only. :nodoc:
 @objc(UAPreferenceDataStore)
-public class PreferenceDataStore : NSObject {
+public final class PreferenceDataStore: NSObject, @unchecked Sendable {
     private let defaults: UserDefaults
     private let appKey: String
     static let deviceIDKey = "deviceID"
 
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
-
-    private var cache: [String: Cached] = [:]
-    private let lock = Lock()
-    private let dispatcher: UADispatcher
-    private var keychainAccess: PreferenceDataStoreKeychainAccessProtocol
-
-    lazy var isAppRestore: Bool = {
-        var deviceID = self.keychainAccess.deviceID
-        if (deviceID == nil) {
-            deviceID = UUID().uuidString
-            self.keychainAccess.deviceID = deviceID
-        }
-        
-        let previousDeviceID = self.string(forKey: PreferenceDataStore.deviceIDKey)
-        if (deviceID == previousDeviceID) {
-            return false
-        }
-
-        var restored = previousDeviceID != nil
-        if (restored)  {
-            AirshipLogger.info("App restored")
-        }
-
-        self.setObject(deviceID, forKey:PreferenceDataStore.deviceIDKey)
-        return restored
-    }()
     
+    private var pending: [String: [Any?]] = [:]
+    private var cache: [String: Cached] = [:]
+    private let lock = AirshipLock()
+    private let dispatcher: UADispatcher
+    private var deviceID: AirshipDeviceIDProtocol
+
+    var isAppRestore: Bool {
+        get async {
+            let deviceIDValue = await deviceID.value
+
+            var restored: Bool = false
+            lock.sync {
+                let previousDeviceID = self.string(forKey: PreferenceDataStore.deviceIDKey)
+                if (deviceIDValue != previousDeviceID) {
+                    restored = previousDeviceID != nil
+                    self.setObject(deviceIDValue, forKey: PreferenceDataStore.deviceIDKey)
+                }
+            }
+
+            if (restored) {
+                AirshipLogger.info("App restored")
+            }
+            return restored
+        }
+    }
+
     @objc
     public convenience init(appKey: String) {
         self.init(
             appKey: appKey,
             dispatcher: UADispatcher.serial(),
-            keychainAccess: AirshipKeychainAccess(appKey: appKey)
+            deviceID: AirshipDeviceID(appKey: appKey)
         )
     }
 
-    init(appKey: String, dispatcher: UADispatcher, keychainAccess: PreferenceDataStoreKeychainAccessProtocol) {
+    init(appKey: String, dispatcher: UADispatcher, deviceID: AirshipDeviceIDProtocol) {
         self.defaults = PreferenceDataStore.createDefaults(appKey: appKey)
         self.appKey = appKey
         self.dispatcher = dispatcher
-        self.keychainAccess = keychainAccess
+        self.deviceID = deviceID
         super.init()
         mergeKeys()
     }
-    
+
     class func createDefaults(appKey: String) -> UserDefaults {
         let suiteName = "\(Bundle.main.bundleIdentifier ?? "").airship.settings"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -73,7 +71,7 @@ public class PreferenceDataStore : NSObject {
                 UserDefaults.standard.removeObject(forKey: key)
             }
         }
-        
+
         return defaults
     }
 
@@ -84,6 +82,10 @@ public class PreferenceDataStore : NSObject {
 
     @objc
     public override func setValue(_ value: Any?, forKey key: String) {
+        write(key, value: value)
+    }
+
+    func storeValue(_ value: Any?, forKey key: String) {
         write(key, value: value)
     }
 
@@ -113,7 +115,7 @@ public class PreferenceDataStore : NSObject {
     }
 
     @objc
-    public func dictionary(forKey key: String) -> [AnyHashable : Any]? {
+    public func dictionary(forKey key: String) -> [AnyHashable: Any]? {
         return read(key)
     }
 
@@ -131,6 +133,11 @@ public class PreferenceDataStore : NSObject {
     public func integer(forKey key: String) -> Int {
         return read(key) ?? 0
     }
+
+    public func unsignedInteger(forKey key: String) -> UInt? {
+        return read(key)
+    }
+    
 
     @objc
     public func float(forKey key: String) -> Float {
@@ -162,6 +169,10 @@ public class PreferenceDataStore : NSObject {
         write(key, value: int)
     }
 
+    public func setUnsignedInteger(_ value: UInt, forKey key: String) {
+        write(key, value: value)
+    }
+
     @objc
     public func setFloat(_ float: Float, forKey key: String) {
         write(key, value: float)
@@ -184,10 +195,31 @@ public class PreferenceDataStore : NSObject {
 
     public func codable<T: Codable>(forKey key: String) throws -> T? {
         guard let data: Data = read(key) else {
-             return nil
+            return nil
         }
 
         return try decoder.decode(T.self, from: data)
+    }
+
+    public func safeCodable<T: Codable>(forKey key: String) -> T? {
+        do {
+            return try codable(forKey: key)
+        } catch {
+            AirshipLogger.error("Failed to read codable for key \(key)")
+            return nil
+        }
+    }
+
+
+    public func setSafeCodable<T: Codable>(
+        _ codable: T?,
+        forKey key: String
+    ) {
+        do {
+            try setCodable(codable, forKey: key)
+        } catch {
+            AirshipLogger.error("Failed to write codable for key \(key)")
+        }
     }
 
     public func setCodable<T: Codable>(
@@ -202,40 +234,43 @@ public class PreferenceDataStore : NSObject {
         let data = try encoder.encode(codable)
         write(key, value: data)
     }
-    
-    
+
     /// Merges old key formats `com.urbanairship.<APP_KEY>.<PREFERENCE>` to
     /// the new key formats `<APP_KEY><PREFERENCE>`. Fixes a bug in SDK 15.x-16.0.1
-    /// where the key changed but we didnt migrate the data.
+    /// where the key changed but we didn't migrate the data.
     private func mergeKeys() {
-        let legacyKeyPrefix = PreferenceDataStore.legacyKeyPrefix(appKey: self.appKey)
-        
+        let legacyKeyPrefix = PreferenceDataStore.legacyKeyPrefix(
+            appKey: self.appKey
+        )
+
         for (key, value) in self.defaults.dictionaryRepresentation() {
-            
+
             // Check for old key
             if key.hasPrefix(legacyKeyPrefix) {
 
                 let preference = String(key.dropFirst(legacyKeyPrefix.count))
                 let newValue = object(forKey: preference)
-                
-                if (newValue == nil) {
+
+                if newValue == nil {
                     // Value not updated on new key, restore value
                     setObject(value, forKey: preference)
-                } else if (preference == "com.urbanairship.channel.tags") {
-                    
+                } else if preference == "com.urbanairship.channel.tags" {
+
                     // Both old and new tag keys have data, merge
-                    if let old = value as? [String], let new = newValue as? [String] {
+                    if let old = value as? [String],
+                        let new = newValue as? [String]
+                    {
                         let combined = AudienceUtils.normalizeTags(old + new)
                         setObject(combined, forKey: preference)
                     }
                 }
-                
+
                 // Delete the old key
                 self.defaults.removeObject(forKey: key)
             }
         }
     }
-    
+
     private class func legacyKeyPrefix(appKey: String) -> String {
         return "com.urbanairship.\(appKey)."
     }
@@ -264,7 +299,7 @@ public class PreferenceDataStore : NSObject {
         return result as? T
     }
 
-    private func write(_ key: String, value: Any?) {
+    func write(_ key: String, value: Any?) {
         let key = prefixKey(key)
         let value = value
 
@@ -288,43 +323,7 @@ public class PreferenceDataStore : NSObject {
     }
 }
 
+
 private struct Cached {
     let value: Any?
-}
-
-
-protocol PreferenceDataStoreKeychainAccessProtocol {
-    var deviceID: String? { get set }
-}
-
-extension AirshipKeychainAccess : PreferenceDataStoreKeychainAccessProtocol {
-    private static let deviceKeychainID = "com.urbanairship.deviceID"
-    var deviceID: String? {
-        get {
-            self.readCredentialsSync(
-                identifier: AirshipKeychainAccess.deviceKeychainID
-            )?.password
-        }
-        set {
-            if let newValue = newValue {
-                self.writeCredentials(
-                    AirshipKeychainCredentials(
-                        username: "airship",
-                        password: newValue
-                    ),
-                    identifier:  AirshipKeychainAccess.deviceKeychainID
-                ) { result in
-                    if (!result) {
-                        AirshipLogger.error("Unable to save device ID")
-                    }
-                }
-            } else {
-                self.deleteCredentials(
-                    identifier: AirshipKeychainAccess.deviceKeychainID
-                )
-            }
-            
-        }
-    }
-    
 }

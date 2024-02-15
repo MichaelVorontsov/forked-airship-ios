@@ -2,22 +2,19 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:watchOSSample/watchOSSample.xcodeproj">
-   </FileRef>
-   <FileRef
       location = "group:Airship/Airship.xcodeproj">
    </FileRef>
    <FileRef
       location = "group:AirshipExtensions/AirshipExtensions.xcodeproj">
    </FileRef>
    <FileRef
-      location = "group:Sample/Sample.xcodeproj">
+      location = "group:Airship Sample/Airship Sample.xcodeproj">
    </FileRef>
    <FileRef
-      location = "group:SwiftSample/SwiftSample.xcodeproj">
+      location = "group:tvOSSample/tvOSSample.xcodeproj">
    </FileRef>
    <FileRef
-      location = "group:SwiftSample/../tvOSSample/tvOSSample.xcodeproj">
+      location = "group:watchOSSample/watchOSSample.xcodeproj">
    </FileRef>
    <FileRef
       location = "group:Thomas/Thomas.xcodeproj">

@@ -10,60 +10,124 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-sdk:
-    runs-on: macOS-12
+  build-sdk-xcode14:
+    runs-on: macos-13-xlarge
     steps:
-      - name: Set env variable
-        run: echo "ImageVersion=$ImageVersion"  >> $GITHUB_ENV
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v1
+      - name: Install Apple Certificate
+        uses: apple-actions/import-codesign-certs@v1
         with:
-          path: vendor/bundle
-          key: ${{ runner.os }}-gems-${{ env.ImageVersion }}-${{ hashFiles('**/Gemfile.lock') }}
-          restore-keys: ${{ runner.os }}-gems-${{ env.ImageVersion }}
+          p12-file-base64: ${{ secrets.CERTIFICATEXC }}
+          p12-password: ${{ secrets.CERTIFICATEXC_PASS }}
+      - uses: actions/checkout@v4
+      - name: Build SDK
+        run: make build-xcframeworks XCODE=14.3.1
+
+  build-sdk:
+    runs-on: macos-13-xlarge
+    steps:
+      - name: Install Apple Certificate
+        uses: apple-actions/import-codesign-certs@v1
+        with:
+          p12-file-base64: ${{ secrets.CERTIFICATEXC }}
+          p12-password: ${{ secrets.CERTIFICATEXC_PASS }}
+      - uses: actions/checkout@v4
       - name: Build SDK
         run: make build-xcframeworks
 
   build-docs:
-    runs-on: macOS-12
+    runs-on: macos-13-xlarge
     steps:
-      - name: Set env variable
-        run: echo "ImageVersion=$ImageVersion"  >> $GITHUB_ENV
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v1
-        with:
-          path: vendor/bundle
-          key: ${{ runner.os }}-gems-${{ env.ImageVersion }}-${{ hashFiles('**/Gemfile.lock') }}
-          restore-keys: ${{ runner.os }}-gems-${{ env.ImageVersion }}
+      - uses: actions/checkout@v4
       - name: Build Docs
         run: make build-docs
 
   run-tests:
-    runs-on: macOS-12
+    runs-on: macos-13-xlarge
+    timeout-minutes: 20
     steps:
-      - name: Set env variable
-        run: echo "ImageVersion=$ImageVersion"  >> $GITHUB_ENV
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v1
-        with:
-          path: vendor/bundle
-          key: ${{ runner.os }}-gems-${{ env.ImageVersion }}-${{ hashFiles('**/Gemfile.lock') }}
-          restore-keys: ${{ runner.os }}-gems-${{ env.ImageVersion }}
+      - uses: actions/checkout@v4
+      - name: Install yeetd
+        run: |
+          wget https://github.com/biscuitehh/yeetd/releases/download/1.0/yeetd-normal.pkg
+          sudo installer -pkg yeetd-normal.pkg -target /
+          yeetd &
+      - name: Test
+        run: make test
+
+  run-package-tests:
+    runs-on: macos-13-xlarge
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
       - name: Install xcodegen
         run: brew install xcodegen
       - name: Test
-        run: make test build-samples
+        run: make test-packages
 
-  pod-lib-lint:
-    runs-on: macOS-12
+  build-samples:
+    runs-on: macos-13-xlarge
+    timeout-minutes: 20
     steps:
-      - name: Set env variable
-        run: echo "ImageVersion=$ImageVersion"  >> $GITHUB_ENV
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v1
-        with:
-          path: vendor/bundle
-          key: ${{ runner.os }}-gems-${{ env.ImageVersion }}-${{ hashFiles('**/Gemfile.lock') }}
-          restore-keys: ${{ runner.os }}-gems-${{ env.ImageVersion }}
+      - uses: actions/checkout@v4
+      - name: Build samples
+        run: make build-samples
+      
+
+  # run-tests-watchos:
+  #   runs-on: macos-13-xlarge
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ruby/setup-ruby@v1
+  #       with:
+  #         bundler-cache: true
+  #     - name: Install xcodegen
+  #       run: brew install xcodegen
+  #     - name: Install Apple Certificate
+  #       uses: apple-actions/import-codesign-certs@v1
+  #       with:
+  #         p12-file-base64: ${{ secrets.CERTIFICATE_P12_BASE64 }}
+  #         p12-password: ${{ secrets.CERTIFICATE_P12_PASSWORD }}
+  #     - name: Install the provisioning profile
+  #       env:
+  #         PROVISIONING_APP_BASE64: ${{ secrets.PROVISIONING_PROFILE_APP_BASE64 }}
+  #         PROVISIONING_EXT_BASE64: ${{ secrets.PROVISIONING_PROFILE_EXT_BASE64 }}
+  #       run: |
+  #         PP_APP_PATH=$RUNNER_TEMP/wkapp_prof.mobileprovision
+  #         PP_EXT_PATH=$RUNNER_TEMP/wkext_prof.mobileprovision
+
+  #         echo -n "$PROVISIONING_APP_BASE64" | base64 --decode > $PP_APP_PATH
+  #         echo -n "$PROVISIONING_EXT_BASE64" | base64 --decode > $PP_EXT_PATH
+
+  #         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+  #         cp $PP_APP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+  #         cp $PP_EXT_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+  #     - name: Test
+  #       run: make build-sample-watchos
+        
+  pod-lib-lint-watchos:
+    runs-on: macos-13-xlarge
+    steps:
+      - uses: actions/checkout@v4
       - name: Pod lint
-        run: make pod-lint
+        run: make pod-lint-watchos
+        
+  pod-lib-lint-tvos:
+    runs-on: macos-13-xlarge
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pod lint
+        run: make pod-lint-tvos
+
+  pod-lib-lint-ios:
+    runs-on: macos-13-xlarge
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pod lint
+        run: make pod-lint-ios
+
+  pod-lib-lint-extensions:
+    runs-on: macos-13-xlarge
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pod lint
+        run: make pod-lint-extensions

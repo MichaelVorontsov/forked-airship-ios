@@ -1,55 +1,96 @@
 /* Copyright Airship and Contributors */
 
-/**
- * Removes tags. This Action is registered under the
- * names ^-t and "remove_tags_action".
- *
- * Expected argument values: NSString (single tag), NSArray (single or multiple tags), or NSDictionary (tag groups).
- * An example tag group JSON payload:
- * {
- *     "channel": {
- *         "channel_tag_group": ["channel_tag_1", "channel_tag_2"],
- *         "other_channel_tag_group": ["other_channel_tag_1"]
- *     },
- *     "named_user": {
- *         "named_user_tag_group": ["named_user_tag_1", "named_user_tag_2"],
- *         "other_named_user_tag_group": ["other_named_user_tag_1"]
- *     },
- *     "device": [ "tag", "another_tag"]
- * }
- *
- *
- * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush
- * UASituationWebViewInvocation, UASituationForegroundInteractiveButton,
- * UASituationBackgroundInteractiveButton, UASituationManualInvocation and
- * UASituationAutomation
- *
- * Default predicate: Rejects foreground pushes with visible display options
- *
- * Result value: nil
- *
- * Error: nil
- *
- * Fetch result: UAActionFetchResultNoData
- */
-@objc(UARemoveTagsAction)
-public class RemoveTagsAction : ModifyTagsAction {
-    
-    @objc
-    public static let name = "remove_tags_action"
-    
-    @objc
-    public static let shortName = "^-t"
-    
-    public override func onChannelTags(_ tags: [String], editor: TagEditor) {
-        editor.remove(tags)
+/// Removes tags.
+///
+/// Expected argument values: `String` (single tag), `[String]` (single or multiple tags), or an object.
+/// An example tag group JSON payload:
+/// {
+///     "channel": {
+///         "channel_tag_group": ["channel_tag_1", "channel_tag_2"],
+///         "other_channel_tag_group": ["other_channel_tag_1"]
+///     },
+///     "named_user": {
+///         "named_user_tag_group": ["named_user_tag_1", "named_user_tag_2"],
+///         "other_named_user_tag_group": ["other_named_user_tag_1"]
+///     },
+///     "device": [ "tag", "another_tag"]
+/// }
+///
+/// Valid situations: `ActionSituation.foregroundPush`, `ActionSituation.launchedFromPush`
+/// `ActionSituation.webViewInvocation`, `ActionSituation.foregroundInteractiveButton`,
+/// `ActionSituation.backgroundInteractiveButton`, `ActionSituation.manualInvocation` and
+/// `ActionSituation.automation`
+public final class RemoveTagsAction: AirshipAction {
+
+    /// Default names - "remove_tags_action", "^-t"
+    public static let defaultNames = ["remove_tags_action", "^-t"]
+
+    /// Default predicate - rejects foreground pushes with visible display options
+    public static let defaultPredicate: @Sendable (ActionArguments) -> Bool = { args in
+        return args.metadata[ActionArguments.isForegroundPresentationMetadataKey] as? Bool != true
     }
-    
-    public override func onChannelTags(_ tags: [String], group: String, editor: TagGroupsEditor) {
-        editor.remove(tags, group: group)
+
+    private let channel: @Sendable () -> AirshipChannelProtocol
+    private let contact: @Sendable () -> AirshipContactProtocol
+
+    @objc
+    public convenience init() {
+        self.init(
+            channel: Airship.componentSupplier(),
+            contact: Airship.componentSupplier()
+        )
     }
-    
-    public override func onContactTags(_ tags: [String], group: String, editor: TagGroupsEditor) {
-        editor.remove(tags, group: group)
+
+    init(
+        channel: @escaping @Sendable () -> AirshipChannelProtocol,
+        contact: @escaping @Sendable () -> AirshipContactProtocol
+    ) {
+        self.channel = channel
+        self.contact = contact
+    }
+
+
+    public func accepts(arguments: ActionArguments) async -> Bool {
+        guard arguments.situation != .backgroundPush else {
+            return false
+        }
+        return true
+    }
+
+    public func perform(arguments: ActionArguments) async throws -> AirshipJSON? {
+        let unwrapped = arguments.value.unWrap()
+        if let tag = unwrapped as? String {
+            channel().editTags { editor in
+                editor.remove(tag)
+            }
+        } else if let tags = arguments.value.unWrap() as? [String] {
+            channel().editTags { editor in
+                editor.remove(tags)
+            }
+        } else if let args: TagsActionsArgs = try arguments.value.decode() {
+            if let channelTagGroups = args.channel {
+                channel().editTagGroups { editor in
+                    channelTagGroups.forEach { group, tags in
+                        editor.remove(tags, group: group)
+                    }
+                }
+            }
+
+            if let contactTagGroups = args.namedUser {
+                contact().editTagGroups { editor in
+                    contactTagGroups.forEach { group, tags in
+                        editor.remove(tags, group: group)
+                    }
+                }
+            }
+
+            if let deviceTags = args.device {
+                channel().editTags() { editor in
+                    editor.remove(deviceTags)
+                }
+            }
+        }
+        return nil
     }
 }
+

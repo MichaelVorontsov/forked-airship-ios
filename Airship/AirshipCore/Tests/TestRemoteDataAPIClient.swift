@@ -3,30 +3,20 @@ import Foundation
 @testable
 import AirshipCore
 
-@objc(UATestRemoteDataAPIClient)
-public class TestRemoteDataAPIClient : NSObject, RemoteDataAPIClientProtocol {
- 
-    @objc
-    public var metdataCallback: ((Locale, String?) -> [AnyHashable : String])?
-    
-    @objc
-    public var fetchCallback: ((Locale, String?, (@escaping (RemoteDataResponse?, Error?) -> Void)) -> Void)?
-    
-    @objc
-    public var defaultCallback: ((String) -> Void)?
+final class TestRemoteDataAPIClient: RemoteDataAPIClientProtocol, @unchecked Sendable {
 
-    
-    public func fetchRemoteData(locale: Locale, randomValue: Int, lastModified: String?, completionHandler: @escaping (RemoteDataResponse?, Error?) -> Void) -> Disposable {
-        if let callback = fetchCallback {
-            callback(locale, lastModified, completionHandler)
-        } else {
-            defaultCallback?("fetchRemoteData")
-        }
-        
-        return Disposable()
-    }
-    
-    public func metadata(locale: Locale, randomValue: Int, lastModified: String?) -> [AnyHashable : Any] {
-        return self.metdataCallback?(locale, lastModified) ?? [:]
+    public var fetchData: (
+        (URL, AirshipRequestAuth, String?, RemoteDataInfo) async throws -> AirshipHTTPResponse<RemoteDataResult>
+    )?
+
+    public var lastModified: String? = nil
+
+    func fetchRemoteData(
+        url: URL,
+        auth: AirshipRequestAuth,
+        lastModified: String?,
+        remoteDataInfoBlock: @escaping @Sendable (String?) throws -> AirshipCore.RemoteDataInfo
+    ) async throws -> AirshipCore.AirshipHTTPResponse<AirshipCore.RemoteDataResult> {
+        try await fetchData!(url, auth, lastModified, try remoteDataInfoBlock(self.lastModified))
     }
 }

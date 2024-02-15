@@ -1,86 +1,87 @@
 /* Copyright Airship and Contributors */
 
-// NOTE: For internal use only. :nodoc:
-class RemoteConfig : NSObject, Codable {
-    
-    @objc
-    public let remoteDataURL: String?
-    
-    @objc
-    public let deviceAPIURL: String?
-    
-    @objc
-    public let analyticsURL: String?
-    
-    @objc
-    public let chatURL: String?
-    
-    @objc
-    public let chatWebSocketURL: String?
-    
-    
+/// NOTE: For internal use only. :nodoc:
+struct RemoteConfig: Codable, Equatable, Sendable {
+
+    let airshipConfig: AirshipConfig?
+    let meteredUsageConfig: MeteredUsageConfig?
+    let fetchContactRemoteData: Bool?
+    let contactConfig: ContactConfig?
+
+    init(
+        airshipConfig: AirshipConfig? = nil,
+        meteredUsageConfig: MeteredUsageConfig? = nil,
+        fetchContactRemoteData: Bool? = nil,
+        contactConfig: ContactConfig? = nil
+    ) {
+        self.airshipConfig = airshipConfig
+        self.meteredUsageConfig = meteredUsageConfig
+        self.fetchContactRemoteData = fetchContactRemoteData
+        self.contactConfig = contactConfig
+    }
+
     enum CodingKeys: String, CodingKey {
-        case remoteDataURL = "remote_data_url"
-        case deviceAPIURL = "device_api_url"
-        case analyticsURL = "analytics_url"
-        case chatURL = "chat_url"
-        case chatWebSocketURL = "chat_web_socket_url"
-    }
-    
-    init(remoteDataURL: String?,
-         deviceAPIURL: String?,
-         analyticsURL: String?,
-         chatURL: String?,
-         chatWebSocketURL: String?) {
-        
-        self.remoteDataURL = RemoteConfig.normalizeURL(remoteDataURL)
-        self.deviceAPIURL = RemoteConfig.normalizeURL(deviceAPIURL)
-        self.analyticsURL = RemoteConfig.normalizeURL(analyticsURL)
-        self.chatURL = RemoteConfig.normalizeURL(chatURL)
-        self.chatWebSocketURL = RemoteConfig.normalizeURL(chatWebSocketURL)
+        case airshipConfig = "airship_config"
+        case meteredUsageConfig = "metered_usage"
+        case fetchContactRemoteData = "fetch_contact_remote_data"
+        case contactConfig = "contact_config"
     }
 
-    class func normalizeURL(_ urlString: String?) -> String? {
-        guard var url = urlString,
-              url.hasSuffix("/") else {
-            return urlString
+    struct ContactConfig: Codable, Equatable, Sendable {
+        let foregroundIntervalMilliseconds: Int64?
+        let channelRegistrationMaxResolveAgeMilliseconds: Int64?
+
+        var foregroundInterval: TimeInterval? {
+            return foregroundIntervalMilliseconds?.timeInterval
         }
-        
-        url.removeLast()
-        return url
+
+        var channelRegistrationMaxResolveAge: TimeInterval? {
+            return channelRegistrationMaxResolveAgeMilliseconds?.timeInterval
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case foregroundIntervalMilliseconds = "foreground_resolve_interval_ms"
+            case channelRegistrationMaxResolveAgeMilliseconds = "max_cra_resolve_age_ms"
+        }
     }
 
-    public override func isEqual(_ object: Any?) -> Bool {
-        guard let remoteConfig = object as? RemoteConfig else {
-            return false
+    struct MeteredUsageConfig: Codable, Equatable, Sendable {
+        let isEnabled: Bool?
+        let initialDelayMilliseconds: Int64?
+        let intervalMilliseconds: Int64?
+
+        var intialDelay: TimeInterval? {
+            return initialDelayMilliseconds?.timeInterval
         }
-        
-        if (self === remoteConfig) {
-            return true
+
+        var interval: TimeInterval? {
+            return intervalMilliseconds?.timeInterval
         }
-        
-        return isEqual(to: remoteConfig)
+
+        enum CodingKeys: String, CodingKey {
+            case isEnabled = "enabled"
+            case initialDelayMilliseconds = "initial_delay_ms"
+            case intervalMilliseconds = "interval_ms"
+        }
     }
 
-    func isEqual(to: RemoteConfig) -> Bool {
-        guard self.deviceAPIURL == to.deviceAPIURL,
-              self.analyticsURL == to.analyticsURL,
-              self.remoteDataURL == to.remoteDataURL,
-              self.chatURL == to.chatURL,
-              self.chatWebSocketURL == to.chatWebSocketURL else {
-            return false
-        }
-        
-        return true
-    }
+    struct AirshipConfig: Codable, Equatable, Sendable {
+        public let remoteDataURL: String?
+        public let deviceAPIURL: String?
+        public let analyticsURL: String?
+        public let meteredUsageURL: String?
 
-    func hash() -> Int {
-        var result = 1
-        result = 31 * result + (deviceAPIURL?.hash ?? 0)
-        result = 31 * result + (analyticsURL?.hash ?? 0)
-        result = 31 * result + (remoteDataURL?.hash ?? 0)
-        result = 31 * result + (chatURL?.hash ?? 0)
-        result = 31 * result + (chatWebSocketURL?.hash ?? 0)
-        return result
+        enum CodingKeys: String, CodingKey {
+            case remoteDataURL = "remote_data_url"
+            case deviceAPIURL = "device_api_url"
+            case analyticsURL = "analytics_url"
+            case meteredUsageURL = "metered_usage_url"
+        }
+    }
+}
+
+fileprivate extension Int64 {
+    var timeInterval: TimeInterval {
+        Double(self)/1000
     }
 }

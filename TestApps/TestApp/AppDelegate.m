@@ -3,11 +3,10 @@
 #import "AppDelegate.h"
 
 @import AirshipCore;
-@import AirshipLocation;
 @import AirshipAutomation;
 @import AirshipMessageCenter;
-@import AirshipExtendedActions;
-@import AirshipAccengage;
+@import AirshipPreferenceCenter;
+@import AirshipDebug;
 
 @interface AppDelegate ()
 @end
@@ -20,11 +19,8 @@
     UAConfig *cfg = [UAConfig defaultConfig];
     [UAirship takeOff:cfg launchOptions:launchOptions];
     
-    [UALocation shared].backgroundLocationUpdatesAllowed = NO;
     [[UAMessageCenter shared] display];
     [UAInAppAutomation shared].inAppMessageManager.displayInterval = 12345;
-    [UAAccengageUtils decryptData:[NSData data] key:@"cool"];
-    [[UAirship shared].actionRegistry registerAction:[[UARateAppAction alloc] init] name:@"raa"];
 
     return YES;
 }

@@ -26,7 +26,7 @@ typedef NS_ENUM(NSUInteger, UAScheduleType) {
 /**
  * UASchedule extension.
  */
-@interface UASchedule ()
+@interface UASchedule()
 
 /**
  * The schedule type.
@@ -48,13 +48,44 @@ typedef NS_ENUM(NSUInteger, UAScheduleType) {
  */
 @property(nonatomic, readonly) NSDictionary *reportingContext;
 
-
 @property(nonatomic, readonly) NSString *dataJSONString;
+
+/**
+ * Audience JSON
+ */
+@property(nonatomic, readonly) NSDictionary *audienceJSON;
+
+/**
+ * Audience miss behavior
+ */
+@property(nonatomic, readonly) UAScheduleAudienceMissBehaviorType audienceMissBehavior;
+
+/**
+ * New user evaluation date.
+ */
+@property(nonatomic, readonly, nullable) NSDate *isNewUserEvaluationDate;
+
+/**
+ * The schedule's message type.
+ *
+ * optional.
+ */
+@property(nonatomic, readonly, nullable) NSString *messageType;
+
+/**
+ * Indicates if schedule could be in holdout group
+ */
+@property(nonatomic, assign) BOOL bypassHoldoutGroups;
 
 /**
  * Frequency constraint IDs.
  */
 @property(nonatomic, readonly) NSArray<NSString *> *frequencyConstraintIDs;
+
+/**
+ * Message product id
+ */
+@property(nonatomic, readonly, nullable) NSString *productId;
 
 
 - (instancetype)initWithData:(id)data
@@ -62,7 +93,6 @@ typedef NS_ENUM(NSUInteger, UAScheduleType) {
                      builder:(UAScheduleBuilder *)builder;
 
 @end
-
 
 /**
  * UAScheduleBuilder extension
@@ -74,17 +104,41 @@ typedef NS_ENUM(NSUInteger, UAScheduleType) {
  */
 @property(nonatomic, copy, nullable) NSDictionary *campaigns;
 
-
 /**
  * Reporing context.
  */
 @property(nonatomic, copy, nullable) NSDictionary *reportingContext;
 
-
 /**
  * Frequency constraint IDs.
  */
 @property (nonatomic, copy, nullable) NSArray<NSString *> *frequencyConstraintIDs;
+
+/**
+ * Audience JSON
+ */
+@property(nonatomic, copy, nullable) NSDictionary *audienceJSON;
+
+/**
+ * The schedule's message type that will be used for holdout group evaluation
+ */
+@property(nonatomic, copy, nullable) NSString *messageType;
+
+/**
+ * Indicates if the schedule could be in holdout groups
+ */
+@property(nonatomic, assign) BOOL bypassHoldoutGroups;
+
+/**
+ * New user evaluation date
+ */
+@property(nonatomic, nullable) NSDate *isNewUserEvaluationDate;
+
+/**
+ * Product id for metered usage
+ */
+@property(nonatomic, nullable) NSString *productId;
+
 
 @end
 

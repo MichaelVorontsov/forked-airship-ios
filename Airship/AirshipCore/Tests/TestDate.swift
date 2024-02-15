@@ -1,13 +1,14 @@
 /* Copyright Airship and Contributors */
 
+@testable
 import AirshipCore
 
 @objc(UATestDate)
-public class UATestDate : AirshipDate {
+public class UATestDate: NSObject, @unchecked Sendable, AirshipDateProtocol  {
 
     @objc
-    public init(offset : TimeInterval, dateOverride: Date?) {
-        self.offset = offset
+    public init(offset: TimeInterval, dateOverride: Date?) {
+        self._offSet = Atomic(offset)
         self.dateOverride = dateOverride
         super.init()
     }
@@ -16,18 +17,26 @@ public class UATestDate : AirshipDate {
         self.init(offset: 0, dateOverride: nil)
     }
 
-    @objc
-    public var offset : TimeInterval
+    private var _offSet: Atomic<TimeInterval>
 
     @objc
-    public var dateOverride : Date?
-
-    public override var now: Date {
+    public var offset: TimeInterval {
         get {
-            let date = dateOverride ?? Date()
-            return date.addingTimeInterval(offset)
+            return self._offSet.value
+        }
+
+        set {
+            self._offSet.value = newValue
         }
     }
 
+    @objc
+    public var dateOverride: Date?
+
+    @objc
+    public var now: Date {
+        let date = dateOverride ?? Date()
+        return date.addingTimeInterval(offset)
+    }
 
 }

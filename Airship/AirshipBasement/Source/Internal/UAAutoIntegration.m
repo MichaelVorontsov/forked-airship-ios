@@ -125,12 +125,13 @@ static dispatch_once_t onceToken;
     }
 
     self.extensionDelegateSwizzler = [UASwizzler swizzler];
+
     // Device token
     [self.extensionDelegateSwizzler swizzleInstance:delegate
                                            selector:@selector(didRegisterForRemoteNotificationsWithDeviceToken:)
                                            protocol:@protocol(WKExtensionDelegate)
                                      implementation:(IMP)DidRegisterForRemoteNotificationsWithDeviceToken];
-
+    
     // Device token errors
     [self.extensionDelegateSwizzler swizzleInstance:delegate
                                            selector:@selector(didFailToRegisterForRemoteNotificationsWithError:)

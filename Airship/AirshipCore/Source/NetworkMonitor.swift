@@ -1,15 +1,14 @@
 /* Copyright Airship and Contributors */
 
 import Network
+
 #if os(watchOS)
 import WatchConnectivity
 #endif
 
-/**
- * - Note: For internal use only. :nodoc:
- */
+/// - Note: For internal use only. :nodoc:
 @objc(UANetworkMonitor)
-open class NetworkMonitor : NSObject {
+open class NetworkMonitor: NSObject {
 
     private var pathMonitor: Any?
 
@@ -25,11 +24,10 @@ open class NetworkMonitor : NSObject {
     @objc
     open var isConnected: Bool {
         #if !os(watchOS)
-        if #available(iOS 12.0, tvOS 12.0, *) {
-            return _isConnected
-        } else {
-            return Utils.connectionType() != ConnectionType.none
+        guard #available(iOS 12.0, tvOS 12.0, *) else {
+            return AirshipUtils.connectionType() != ConnectionType.none
         }
+        return _isConnected
         #else
         return true
         #endif
@@ -47,5 +45,19 @@ open class NetworkMonitor : NSObject {
             monitor.start(queue: DispatchQueue.main)
             self.pathMonitor = monitor
         }
+    }
+}
+
+/// - Note: For internal use only. :nodoc:
+public protocol NetworkCheckerProtocol: Actor, Sendable {
+    var isConnected: Bool { get }
+}
+
+/// - Note: For internal use only. :nodoc:
+public actor NetworkChecker: NetworkCheckerProtocol {
+    private let networkMonitor: NetworkMonitor = NetworkMonitor()
+    public init() {}
+    public var isConnected: Bool {
+        return networkMonitor.isConnected
     }
 }

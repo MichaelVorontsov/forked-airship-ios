@@ -3,26 +3,38 @@
 import Foundation
 import os
 
-/**
- * Default log handler. Logs to either os.Logger or just prints depending on OS version.
- */
+/// Default log handler. Logs to either os.Logger or just prints depending on OS version.
 class DefaultLogHandler: AirshipLogHandler {
     @available(macOS 11.0, iOS 14.0, watchOS 7.0, tvOS 14.0, *)
-    private static let logger: Logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "", category: "Airship")
+    private static let logger: Logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "",
+        category: "Airship"
+    )
 
-    func log(logLevel: LogLevel, message: String, fileID: String, line: UInt, function: String) {
+    func log(
+        logLevel: AirshipLogLevel,
+        message: String,
+        fileID: String,
+        line: UInt,
+        function: String
+    ) {
         if #available(macOS 11.0, iOS 14.0, watchOS 7.0, tvOS 14.0, *) {
-            DefaultLogHandler.logger.log(level: logLevel.logType, "[\(logLevel.initial)] \(fileID) \(function) [Line \(line)] \(message)")
+            DefaultLogHandler.logger.log(
+                level: logLevel.logType,
+                "[\(logLevel.initial)] \(fileID) \(function) [Line \(line)] \(message)"
+            )
         } else {
-            print("[\(logLevel.initial)] \(fileID) \(function) [Line \(line)] \(message)")
+            print(
+                "[\(logLevel.initial)] \(fileID) \(function) [Line \(line)] \(message)"
+            )
         }
     }
 }
 
-private extension LogLevel {
-    var initial: String {
+extension AirshipLogLevel {
+    fileprivate var initial: String {
         switch self {
-        case .trace: return "T"
+        case .verbose: return "V"
         case .debug: return "D"
         case .info: return "I"
         case .warn: return "W"
@@ -31,9 +43,9 @@ private extension LogLevel {
         }
     }
 
-    var logType: OSLogType {
+    fileprivate var logType: OSLogType {
         switch self {
-        case .trace: return OSLogType.debug
+        case .verbose: return OSLogType.debug
         case .debug: return OSLogType.debug
         case .info: return OSLogType.info
         case .warn: return OSLogType.default

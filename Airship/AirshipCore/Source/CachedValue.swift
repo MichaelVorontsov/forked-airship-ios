@@ -2,10 +2,9 @@
 
 import Foundation
 
-class CachedValue<Value> where Value : Any {
-    private let date: AirshipDate
-    private let maxCacheAge: TimeInterval
-    private let lock = Lock()
+final class CachedValue<Value>: @unchecked Sendable where Value: Any {
+    private let date: AirshipDateProtocol
+    private let lock = AirshipLock()
     private var expiration: Date?
 
     private var _value: Value?
@@ -14,27 +13,60 @@ class CachedValue<Value> where Value : Any {
             var cachedValue: Value?
             lock.sync {
                 guard let expiration = expiration,
-                      self.date.now < expiration else {
-                          self.expiration = nil
-                          self._value = nil
-                          return
-                      }
-                
+                    self.date.now < expiration
+                else {
+                    self.expiration = nil
+                    self._value = nil
+                    return
+                }
+
                 cachedValue = _value
             }
-            
+
             return cachedValue
         }
-        set {
-            lock.sync {
-                self.expiration = self.date.now.addingTimeInterval(maxCacheAge)
-                self._value = newValue
+    }
+
+    var timeRemaining: TimeInterval {
+        var timeRemaining: TimeInterval = 0
+        lock.sync {
+            if let expiration = self.expiration {
+                timeRemaining = max(0, expiration.timeIntervalSince(self.date.now))
+            }
+
+        }
+        return timeRemaining
+    }
+
+    func set(value: Value, expiresIn: TimeInterval) {
+        lock.sync {
+            self.expiration = self.date.now.addingTimeInterval(expiresIn)
+            self._value = value
+        }
+    }
+
+    func set(value: Value, expiration: Date) {
+        lock.sync {
+            self.expiration = expiration
+            self._value = value
+        }
+    }
+
+    func expireIf(predicate: (Value) -> Bool) {
+        lock.sync {
+            if let value = self._value, predicate(value) {
+                self._value = nil
             }
         }
     }
-    
-    init(date: AirshipDate, maxCacheAge: TimeInterval) {
+
+    func expire() {
+        lock.sync {
+            self._value = nil
+        }
+    }
+
+    init(date: AirshipDateProtocol = AirshipDate.shared) {
         self.date = date
-        self.maxCacheAge = maxCacheAge
     }
 }

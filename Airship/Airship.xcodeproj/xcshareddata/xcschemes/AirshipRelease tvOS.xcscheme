@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1300"
+   LastUpgradeVersion = "1430"
    version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "6E77BC3E28AAE5910001A36A"
+               BlueprintIdentifier = "6EAAE87028C2AD67003CAE53"
                BuildableName = "AirshipRelease tvOS"
                BlueprintName = "AirshipRelease tvOS"
                ReferencedContainer = "container:Airship.xcodeproj">
@@ -50,7 +50,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "6E77BC3E28AAE5910001A36A"
+            BlueprintIdentifier = "6EAAE87028C2AD67003CAE53"
             BuildableName = "AirshipRelease tvOS"
             BlueprintName = "AirshipRelease tvOS"
             ReferencedContainer = "container:Airship.xcodeproj">

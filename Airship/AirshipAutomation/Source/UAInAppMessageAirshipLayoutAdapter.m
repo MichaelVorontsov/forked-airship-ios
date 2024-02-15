@@ -109,7 +109,7 @@
     
     for (UAURLInfo *info in self.urlInfos) {
         NSURL *url = [NSURL URLWithString:info.url];
-        if (![[UAirship shared].URLAllowList isAllowed:url scope:UAURLAllowListScopeOpenURL]) {
+        if (info.urlType == UAURLInfoURLTypeWeb && ![[UAirship shared].URLAllowList isAllowed:url scope:UAURLAllowListScopeOpenURL]) {
             UA_LERR(@"In-app message URL %@ is not allowed. Unable to display message.", url);
             return completionHandler(UAInAppMessagePrepareResultCancel);
         }
@@ -120,47 +120,42 @@
 }
 
 - (BOOL)isReadyToDisplay {
-    if (@available(iOS 13.0, *)) {
-        
-        BOOL isConnected = [self isNetworkConnected];
-        
-        for (UAURLInfo *info in self.urlInfos) {
-            if (info.urlType == UrlTypesImage && ![self.assets isCached:[NSURL URLWithString:info.url]]) {
-                continue;
-            }
-            
-            if (!isConnected) {
-                return false;
-            }
-        }
-        
-        UIWindowScene *scene = [[UAInAppMessageSceneManager shared] sceneForMessage:self.message];
-        if (!scene) {
-            return NO;
-        }
-        
-        UAAutomationNativeBridgeExtension *nativeBridgeExtension = [UAAutomationNativeBridgeExtension extensionWithMessage:self.message];
-        
-        UAAssetImageProvider *assetImageProvider = [[UAAssetImageProvider alloc] init];
-        assetImageProvider.assets = self.assets;
+    BOOL isConnected = [self isNetworkConnected];
 
-        UAThomasExtensions *extensions = [[UAThomasExtensions alloc]
-                                          initWithNativeBridgeExtension:nativeBridgeExtension
-                                          imageProvider:assetImageProvider];
-
-        self.deferredDisplay = [UAThomas deferredDisplayWithJson:self.displayContent.layout
-                                                           scene:scene
-                                                      extensions:extensions
-                                                        delegate:self
-                                                           error:nil];
-        if (!self.deferredDisplay) {
-            return NO;
+    for (UAURLInfo *info in self.urlInfos) {
+        if (info.urlType == UrlTypesImage && ![self.assets isCached:[NSURL URLWithString:info.url]]) {
+            continue;
         }
-        
-        return YES;
-    } else {
+
+        if (!isConnected) {
+            return false;
+        }
+    }
+
+    UIWindowScene *scene = [[UAInAppMessageSceneManager shared] sceneForMessage:self.message];
+    if (!scene) {
         return NO;
     }
+
+    UAAutomationNativeBridgeExtension *nativeBridgeExtension = [UAAutomationNativeBridgeExtension extensionWithMessage:self.message];
+
+    UAAssetImageProvider *assetImageProvider = [[UAAssetImageProvider alloc] init];
+    assetImageProvider.assets = self.assets;
+
+    UAThomasExtensions *extensions = [[UAThomasExtensions alloc]
+                                      initWithNativeBridgeExtension:nativeBridgeExtension.nativeBridgeExtension
+                                      imageProvider:assetImageProvider];
+
+    self.deferredDisplay = [UAThomas deferredDisplayWithJson:self.displayContent.layout
+                                                       scene:^{ return scene; }
+                                                  extensions:extensions
+                                                    delegate:self
+                                                       error:nil];
+    if (!self.deferredDisplay) {
+        return NO;
+    }
+
+    return YES;
 }
 
 
@@ -208,49 +203,37 @@
     [self dimissWithResolution:resolution layoutContext:layoutContext];
 }
 
-- (void)onRunActionsWithActions:(NSDictionary<NSString *,id> *)actions
-                  layoutContext:(UAThomasLayoutContext *)layoutContext {
+- (void)onPromptPermissionResultWithPermission:(UAPermission)permission
+                                startingStatus:(UAPermissionStatus)startingStatus
+                                  endingStatus:(UAPermissionStatus)endingStatus
+                                 layoutContext:(UAThomasLayoutContext *)layoutContext {
 
-    // Capturing all the data we need to generate the event since the action block
-    // will be potentially long lived
-    void (^onEvent)(UAInAppReporting *) = self.onEvent;
-    id message = self.message;
-    id scheduleID = self.scheduleID;
 
-    id metadata = [UAPromptPermissionAction makePermissionReceiverMetadataWithResultReceiver:^(UAPermission permission, UAPermissionStatus start, UAPermissionStatus end) {
+    // We cant expose swift types in an obj-c interface so we stringify it before passing it over. We can
+    // do it the right way once we convert this module to swift.
+    id permissionString = [UAUtils permissionString:permission];
+    id startinStatuString = [UAUtils permissionStatusString:startingStatus];
+    id endingStatusString = [UAUtils permissionStatusString:endingStatus];
 
-        // We cant expose swift types in an obj-c interface so we stringify it before passing it over. We can
-        // do it the right way once we convert this module to swift.
-        id permissionString = [UAUtils permissionString:permission];
-        id startinStatuString = [UAUtils permissionStatusString:start];
-        id endingStatusString = [UAUtils permissionStatusString:end];
+    UAInAppReporting *event = [UAInAppReporting permissionResultEventWithScheduleID:self.scheduleID
+                                                                            message:self.message
+                                                                         permission:permissionString
+                                                                     startingStatus:startinStatuString
+                                                                       endingStatus:endingStatusString];
 
-        UAInAppReporting *event = [UAInAppReporting permissionResultEventWithScheduleID:scheduleID
-                                                                                message:message
-                                                                             permission:permissionString
-                                                                         startingStatus:startinStatuString
-                                                                           endingStatus:endingStatusString];
+    event.layoutContext = layoutContext;
 
-        event.layoutContext = layoutContext;
-
-        if (onEvent) {
-            onEvent(event);
-        }
-    }];
-
-    [UAActionRunner runActionsWithActionValues:actions
-                                     situation:UASituationManualInvocation
-                                      metadata:metadata
-                             completionHandler:^(UAActionResult *result) {
-        UA_LDEBUG(@"Finished running actions.");
-    }];
-
+    [self record:event];
 }
+
 - (void)onButtonTappedWithButtonIdentifier:(NSString * _Nonnull)buttonIdentifier
-                             layoutContext:(UAThomasLayoutContext * _Nonnull)layoutContext {
+                                  metadata:(id)metadata
+                             layoutContext:(UAThomasLayoutContext * _Nonnull)layoutContext
+{
 
     UAInAppReporting *reporting = [UAInAppReporting buttonTapEventWithScheduleID:self.scheduleID
                                                                          message:self.message
+                                                                        metadata: metadata
                                                                         buttonID:buttonIdentifier];
     reporting.layoutContext = layoutContext;
     
@@ -314,8 +297,30 @@
         completed.layoutContext = layoutContext;
         [self record:completed];
     }
-  
-    
+}
+
+-(void)onPageGestureWithIdentifier:(NSString *)identifier
+                          metadata:(id)metadata
+                     layoutContext:(UAThomasLayoutContext *)layoutContext
+{
+    UAInAppReporting *reporting = [UAInAppReporting pageGestureEventWithScheduleID:self.scheduleID
+                                                                        identifier:identifier
+                                                                          metadata:metadata
+                                                                           message:self.message];
+    reporting.layoutContext = layoutContext;
+    [self record:reporting];
+}
+
+-(void)onPageAutomatedActionWithIdentifier:(NSString *)identifier
+                                  metadata:(id)metadata
+                             layoutContext:(UAThomasLayoutContext *)layoutContext
+{
+    UAInAppReporting *reporting = [UAInAppReporting pageAutomatedActionEventWithScheduleID:self.scheduleID
+                                                                                identifier:identifier
+                                                                                  metadata:metadata
+                                                                                   message:self.message];
+    reporting.layoutContext = layoutContext;
+    [self record:reporting];
 }
 
 - (void)onPageSwipedFrom:(UAThomasPagerInfo * _Nonnull)from

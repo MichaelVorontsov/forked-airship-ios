@@ -1,208 +1,112 @@
 /* Copyright Airship and Contributors */
 
-// NOTE: For internal use only. :nodoc:
-protocol ChannelBulkUpdateAPIClientProtocol {
-    @discardableResult
-    func update(_ update: AudienceUpdate,
-                channelID: String,
-                completionHandler: @escaping (HTTPResponse?, Error?) -> Void) -> Disposable;
+/// NOTE: For internal use only. :nodoc:
+protocol ChannelBulkUpdateAPIClientProtocol: Sendable {
+    func update(
+        _ update: AudienceUpdate,
+        channelID: String
+    ) async throws -> AirshipHTTPResponse<Void>
 }
 
-// NOTE: For internal use only. :nodoc:
-class ChannelBulkUpdateAPIClient : ChannelBulkUpdateAPIClientProtocol {
+/// NOTE: For internal use only. :nodoc:
+final class ChannelBulkUpdateAPIClient: ChannelBulkUpdateAPIClientProtocol {
     private static let path = "/api/channels/sdk/batch/"
 
-    private var config: RuntimeConfig
-    private var session: RequestSession
-    private var encoder: JSONEncoder = JSONEncoder()
+    private let config: RuntimeConfig
+    private let session: AirshipRequestSession
+    private let encoder: JSONEncoder = JSONEncoder()
 
-    init(config: RuntimeConfig, session: RequestSession) {
+    init(config: RuntimeConfig, session: AirshipRequestSession) {
         self.config = config
         self.session = session
     }
-    
+
     convenience init(config: RuntimeConfig) {
-        self.init(config: config, session: RequestSession(config: config))
+        self.init(
+            config: config,
+            session: config.requestSession
+        )
     }
 
-    @discardableResult
     func update(
         _ update: AudienceUpdate,
-        channelID: String,
-        completionHandler: @escaping (HTTPResponse?, Error?) -> Void
-    ) -> Disposable {
-
-        let url = buildURL(channelID: channelID)
-
+        channelID: String
+    ) async throws -> AirshipHTTPResponse<Void> {
+        let url = try makeURL(channelID: channelID)
         let payload = update.clientPayload
 
-        AirshipLogger.debug("Updating channel with url \(url?.absoluteString ?? "") payload \(payload)")
+        AirshipLogger.debug(
+            "Updating channel with url \(url.absoluteString) payload \(payload)"
+        )
 
-        let request = Request(builderBlock: { [self] builder in
-            builder.method = "PUT"
-            builder.url = url
-            builder.username = config.appKey
-            builder.password = config.appSecret
-            builder.setValue("application/vnd.urbanairship+json; version=3;", header: "Accept")
-            builder.setValue("application/json", header: "Content-Type")
-            builder.body = try? encoder.encode(payload)
-        })
-        
-        return session.performHTTPRequest(request, completionHandler: { (data, response, error) in
-            guard let response = response else {
-                AirshipLogger.debug("Update finished with error: \(error.debugDescription)")
-                completionHandler(nil, error)
-                return
-            }
-
-            AirshipLogger.debug("Update finished with response: \(response)")
-            completionHandler(HTTPResponse(status: response.statusCode), nil)
-        })
+        let request = AirshipRequest(
+            url: url,
+            headers: [
+                "Accept": "application/vnd.urbanairship+json; version=3;",
+                "Content-Type": "application/json"
+            ],
+            method: "PUT",
+            auth: .channelAuthToken(identifier: channelID),
+            body: try? encoder.encode(payload)
+        )
+        return try await session.performHTTPRequest(request)
     }
-    
-    func buildURL(channelID: String) -> URL? {
+
+    func makeURL(channelID: String) throws -> URL {
         guard let deviceUrl = config.deviceAPIURL else {
-            return nil
+            throw AirshipErrors.error("URL config not downloaded.")
         }
-        
-        var urlComps = URLComponents(string: "\(deviceUrl)\(ChannelBulkUpdateAPIClient.path)\(channelID)")
+
+        var urlComps = URLComponents(
+            string: "\(deviceUrl)\(ChannelBulkUpdateAPIClient.path)\(channelID)"
+        )
         urlComps?.queryItems = [URLQueryItem(name: "platform", value: "ios")]
-        return urlComps?.url
+
+        guard let url = urlComps?.url else {
+            throw AirshipErrors.error("Invalid url from \(String(describing: urlComps)).")
+        }
+
+        return url
     }
 }
 
-
-
-fileprivate extension AudienceUpdate {
-
-    var clientSubscriptionListPayload: [ClientPayload.SubscriptionOperation]? {
-        guard !self.subscriptionListUpdates.isEmpty else { return nil }
-
-        return self.subscriptionListUpdates.map { update in
-            switch(update.type) {
-            case .subscribe:
-                return ClientPayload.SubscriptionOperation(
-                    action: .subscribe,
-                    listID: update.listId
-                )
-            case .unsubscribe:
-                return ClientPayload.SubscriptionOperation(
-                    action: .unsubscribe,
-                    listID: update.listId
-                )
-            }
-        }
-    }
-
-    var clientAttributePayload: [ClientPayload.AttributeOperation]? {
-        guard !self.attributeUpdates.isEmpty else { return nil }
-
-        return self.attributeUpdates.map { update in
-            let timestamp = Utils.isoDateFormatterUTCWithDelimiter().string(
-                from: update.date
-            )
-            switch(update.type) {
-            case .set:
-                return ClientPayload.AttributeOperation(
-                    action: .set,
-                    key: update.attribute,
-                    timestamp: timestamp,
-                    value: try? AirshipJSON.wrap(update.value())
-                )
-            case .remove:
-                return ClientPayload.AttributeOperation(
-                    action: .remove,
-                    key: update.attribute,
-                    timestamp: timestamp,
-                    value: nil
-                )
-            }
-        }
-    }
-
-    var clientLiveActivitiesPayload: [LiveActivityUpdate]? {
-        guard !self.liveActivityUpdates.isEmpty else { return nil }
-        return liveActivityUpdates
-    }
-
-
-    var clientTagPayload: ClientPayload.TagPayload? {
-        guard !self.tagGroupUpdates.isEmpty else { return nil }
-
-        var tagPayload = ClientPayload.TagPayload()
-        self.tagGroupUpdates.forEach { tagUpdate in
-            switch(tagUpdate.type) {
-            case .set:
-                if (tagPayload.set == nil) {
-                    tagPayload.set = [:]
-                }
-                tagPayload.set?[tagUpdate.group] = tagUpdate.tags
-            case .remove:
-                if (tagPayload.remove == nil) {
-                    tagPayload.remove = [:]
-                }
-                tagPayload.remove?[tagUpdate.group] = tagUpdate.tags
-            case .add:
-                if (tagPayload.add == nil) {
-                    tagPayload.add = [:]
-                }
-                tagPayload.add?[tagUpdate.group] = tagUpdate.tags
-            }
+extension AudienceUpdate {
+    fileprivate var clientPayload: ClientPayload {
+        var subscriptionLists: [SubscriptionListOperation]?
+        if (!self.subscriptionListUpdates.isEmpty) {
+            subscriptionLists = self.subscriptionListUpdates.map { $0.operation }
         }
 
-        return tagPayload
-    }
+        var attributes: [AttributeOperation]?
+        if (!self.attributeUpdates.isEmpty) {
+            attributes = self.attributeUpdates.map { $0.operation }
+        }
 
-    var clientPayload: ClientPayload {
+        var tags: TagGroupOverrides?
+        if (!self.tagGroupUpdates.isEmpty) {
+            tags = TagGroupOverrides.from(updates: self.tagGroupUpdates)
+        }
+
+        var liveActivities: [LiveActivityUpdate]?
+        if (!self.liveActivityUpdates.isEmpty) {
+            liveActivities = self.liveActivityUpdates
+        }
+
+
         return ClientPayload(
-            tags: self.clientTagPayload,
-            subscriptionLists: self.clientSubscriptionListPayload,
-            attributes: self.clientAttributePayload,
-            liveActivities: self.clientLiveActivitiesPayload
+            tags: tags,
+            subscriptionLists: subscriptionLists,
+            attributes: attributes,
+            liveActivities: liveActivities
         )
     }
 }
 
-
-fileprivate struct ClientPayload: Encodable {
-
-    struct TagPayload: Encodable {
-        var add: [String: [String]]? = nil
-        var remove: [String: [String]]? = nil
-        var set: [String: [String]]? = nil
-    }
-
-    enum SubscriptionAction: String, Encodable {
-        case subscribe
-        case unsubscribe
-    }
-
-    struct SubscriptionOperation: Encodable {
-        var action: SubscriptionAction
-        var listID: String
-
-        enum CodingKeys: String, CodingKey {
-            case action = "action"
-            case listID = "list_id"
-        }
-    }
-
-    enum AttributeAction: String, Encodable {
-        case set
-        case remove
-    }
-
-    struct AttributeOperation: Encodable {
-        var action: AttributeAction
-        var key: String
-        var timestamp: String
-        var value: AirshipJSON?
-    }
-
-    let tags: TagPayload?
-    let subscriptionLists: [SubscriptionOperation]?
-    let attributes: [AttributeOperation]?
-    let liveActivities: [LiveActivityUpdate]?
+private struct ClientPayload: Encodable {
+    var tags: TagGroupOverrides?
+    var subscriptionLists: [SubscriptionListOperation]?
+    var attributes: [AttributeOperation]?
+    var liveActivities: [LiveActivityUpdate]?
 
     enum CodingKeys: String, CodingKey {
         case tags = "tags"

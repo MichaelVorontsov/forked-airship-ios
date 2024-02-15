@@ -7,18 +7,23 @@ import AirshipCore
 #endif
 
 class PreferenceCenterDecoder {
-    private static let decoder : JSONDecoder = {
+    private static let decoder: JSONDecoder = {
         var decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
-    
-    class func decodeConfig(object: [AnyHashable: Any]) throws -> PrefrenceCenterResponse {
-        let data = try JSONSerialization.data(withJSONObject: object, options: [])
+
+    class func decodeConfig(
+        jsonConfig: [AnyHashable: Any]
+    ) throws -> PreferenceCenterConfig {
+        let data = try JSONSerialization.data(
+            withJSONObject: jsonConfig,
+            options: []
+        )
         return try decodeConfig(data: data)
     }
-    
-    class func decodeConfig(data: Data) throws -> PrefrenceCenterResponse {
-        return try self.decoder.decode(PrefrenceCenterResponse.self, from: data)
+
+    class func decodeConfig(data: Data) throws -> PreferenceCenterConfig {
+        return try self.decoder.decode(PreferenceCenterConfig.self, from: data)
     }
 }
